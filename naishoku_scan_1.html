@@ -396,9 +396,18 @@
       <div class="vr-workername" id="vrWorkerName"></div>
       <div class="vr-phone" id="vrPhone"></div>
     </div>
-    <table class="vp-table vr-table">
-      <thead><tr><th>伝票番号</th><th>商品コード／商品名</th><th>受領日</th><th class="num">単価</th><th class="num">納入数計</th><th class="num">金額</th></tr></thead>
-      <tbody id="vrRows"></tbody>
+    <div class="vp-meta">
+      <div class="vp-row"><span class="vp-label">伝票番号</span><span class="vp-val mono" id="vrVoucherNo"></span></div>
+      <div class="vp-row"><span class="vp-label">商品コード</span><span class="vp-val" id="vrProductCode"></span></div>
+      <div class="vp-row"><span class="vp-label">商品名</span><span class="vp-val" id="vrProductName"></span></div>
+      <div class="vp-row"><span class="vp-label">委託日</span><span class="vp-val" id="vrShipDate"></span></div>
+      <div class="vp-row"><span class="vp-label">受領日</span><span class="vp-val" id="vrRecvDate"></span></div>
+    </div>
+    <table class="vp-table vr-amount-table">
+      <thead><tr><th class="num">単価</th><th class="num">納入数</th><th class="num">小計</th></tr></thead>
+      <tbody>
+        <tr><td class="num" id="vrUnit"></td><td class="num" id="vrQty"></td><td class="num" id="vrSubtotal"></td></tr>
+      </tbody>
     </table>
     <div class="vr-total-row">
       <span class="vr-total-label">お支払予定金額</span>
@@ -429,12 +438,12 @@
   .vp-total-val{ font-weight:700; text-decoration:underline; padding-top:10px; border-bottom:none; }
   .vp-note{ margin-top:16px; font-size:12px; color:#555; }
 
-  .vr-worker{ margin-bottom:18px; }
+  .vr-worker{ margin-bottom:16px; }
   .vr-workername{ font-size:18px; font-weight:700; }
   .vr-phone{ font-size:12px; color:#444; margin-top:4px; padding-left:6px; }
-  .vr-table td{ font-size:12.5px; }
-  .vr-table .vr-code{ font-weight:700; }
-  .vr-table .vr-name{ color:#444; font-size:11.5px; margin-top:2px; }
+  .vr-amount-table{ margin-top:14px; }
+  .vr-amount-table th{ padding:6px 14px; }
+  .vr-amount-table td{ padding:10px 14px; font-size:15px; border-bottom:none; }
   .vr-total-row{ display:flex; justify-content:flex-end; align-items:baseline; gap:14px; margin-top:16px; border-top:1px solid #333; padding-top:10px; }
   .vr-total-label{ font-size:13px; font-weight:700; }
   .vr-total-val{ font-size:18px; font-weight:700; text-decoration:underline; }
@@ -862,7 +871,7 @@ async function registerReceive(){
   if(!res || res.error){ toast('登録に失敗しました：'+(res&&res.error||'')); return; }
   const rem = res.record.shipmentRemaining;
   toast(`入荷を登録しました（${res.record.voucherNo}）残り${rem>0?rem:0}`);
-  openVoucherModal('receive', res.record);
+  openVoucherModal('receive', {...res.record, shipmentDate: selectedShipment.date});
   selectedShipment = null;
   document.getElementById('receiveConfirmCard').style.display='none';
   await loadAll();
@@ -898,18 +907,17 @@ function fillReceiveTemplate(f){
   document.getElementById('vrDate').textContent = f.issueDate;
   document.getElementById('vrWorkerName').textContent = f.workerName + ' 様';
   document.getElementById('vrPhone').textContent = f.workerPhone || '';
+  document.getElementById('vrVoucherNo').textContent = f.voucherNo;
+  document.getElementById('vrProductCode').textContent = f.productCode;
+  document.getElementById('vrProductName').textContent = f.productName;
+  document.getElementById('vrShipDate').textContent = f.shipmentDate || '－';
+  document.getElementById('vrRecvDate').textContent = f.date;
   const unit = f.unitPrice || 0;
-  const amount = unit * f.qty;
-  document.getElementById('vrRows').innerHTML = `
-    <tr>
-      <td class="mono">${escapeHtml(f.voucherNo)}</td>
-      <td><div class="vr-code">${escapeHtml(f.productCode)}</div><div class="vr-name">${escapeHtml(f.productName)}</div></td>
-      <td>${escapeHtml(f.date)}</td>
-      <td class="num">${unit ? fmtNum(unit) : '-'}</td>
-      <td class="num">${escapeHtml(String(f.qty))}</td>
-      <td class="num">${unit ? fmtYen(amount) : '-'}</td>
-    </tr>`;
-  document.getElementById('vrTotal').textContent = unit ? fmtYen(amount) : '-';
+  const subtotal = unit * f.qty;
+  document.getElementById('vrUnit').textContent = unit ? fmtNum(unit) : '-';
+  document.getElementById('vrQty').textContent = f.qty;
+  document.getElementById('vrSubtotal').textContent = unit ? fmtYen(subtotal) : '-';
+  document.getElementById('vrTotal').textContent = unit ? fmtYen(subtotal) : '-';
   document.getElementById('vrNote').textContent = f.note ? ('備考：' + f.note) : '';
 }
 
@@ -931,7 +939,8 @@ async function openVoucherModal(type, record){
     productName: record.productName,
     qty: record.qty,
     note: record.note,
-    unitPrice: productMaster ? productMaster.u : 0
+    unitPrice: productMaster ? productMaster.u : 0,
+    shipmentDate: record.shipmentDate || ''
   };
   const templateId = type==='ship' ? 'voucherPrint' : 'voucherPrintReceive';
   if(type==='ship'){ fillShipTemplate(fields); } else { fillReceiveTemplate(fields); }
