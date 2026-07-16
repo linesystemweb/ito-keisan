@@ -168,7 +168,8 @@
   ::-webkit-scrollbar{width:6px;}
   ::-webkit-scrollbar-thumb{background:var(--line); border-radius:6px;}
 
-  .voucher-print{ width:760px; background:#fff; padding:26px 30px; font-family:"Hiragino Sans","Yu Gothic",sans-serif; color:#1a1a1a; }
+  .voucher-print{ width:760px; background:#fff; padding:26px 30px; font-family:"Hiragino Sans","Yu Gothic",sans-serif; color:#1a1a1a; display:none; }
+  .voucher-print.active{ display:block; }
   .vp-header{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:16px; }
   .vp-title{ font-size:19px; font-weight:700; letter-spacing:0.08em; white-space:nowrap; }
   .vp-companyblock{ text-align:right; font-size:12px; line-height:1.6; }
@@ -242,6 +243,8 @@
     <div class="card" id="shipCartCard" style="display:none;">
       <h2><span class="titletext"><span class="num">3</span>出荷リスト</span></h2>
       <div id="shipCartList"></div>
+      <label class="field-label">出荷日（依頼日）</label>
+      <input type="date" id="shipDateInput">
       <label class="field-label">備考（任意・伝票全体にかかる備考）</label>
       <input type="text" id="shipNoteInput" placeholder="例）納期優先でお願いしました">
       <button class="btn btn-primary btn-block" id="registerShipBtn" style="margin-top:14px;">この内容で出荷を登録する</button>
@@ -311,7 +314,50 @@
       <div style="font-size:14px; font-weight:700; color:var(--accent-dark);">伝票を発行しました</div>
       <button id="voucherCloseBtn" style="background:none; border:none; font-size:20px; color:var(--ink-soft); cursor:pointer;">✕</button>
     </div>
-    <div id="voucherPreviewWrap" style="border:1px solid var(--line); border-radius:10px; overflow-x:auto; margin-bottom:14px;"></div>
+    <div id="voucherPreviewWrap" style="border:1px solid var(--line); border-radius:10px; overflow-x:auto; margin-bottom:14px;">
+      <div id="voucherPrint" class="voucher-print">
+        <div class="vp-header">
+          <div class="vp-title">商品加工委託伝票</div>
+          <div class="vp-companyblock">
+            <div class="vp-date" id="vpDate"></div>
+            <div class="vp-company">奈良市西九条2-5-10</div>
+            <div class="vp-company">株式会社ラインシステム</div>
+          </div>
+        </div>
+        <div class="vp-meta">
+          <div class="vp-row"><span class="vp-label">伝票番号</span><span class="vp-val mono" id="vpVoucherNo"></span></div>
+          <div class="vp-row"><span class="vp-label">引渡日</span><span class="vp-val" id="vpDeliveryDate"></span></div>
+          <div class="vp-row"><span class="vp-label">委託先</span><span class="vp-val" id="vpWorker"></span></div>
+        </div>
+        <table class="vp-table">
+          <thead><tr><th>商品コード</th><th>商品名</th><th class="num">数量</th><th class="num">単価</th><th class="num">金額</th></tr></thead>
+          <tbody id="vpRows"></tbody>
+          <tfoot><tr><td colspan="4" class="vp-total-label">計</td><td class="num vp-total-val" id="vpTotal"></td></tr></tfoot>
+        </table>
+        <div class="vp-note" id="vpNote"></div>
+      </div>
+
+      <div id="voucherPrintReceive" class="voucher-print">
+        <div class="vp-header">
+          <div class="vp-title">委託商品受領書</div>
+          <div class="vp-companyblock">
+            <div class="vp-date" id="vrDate"></div>
+            <div class="vp-company">奈良市西九条2-5-10</div>
+            <div class="vp-company">株式会社ラインシステム</div>
+          </div>
+        </div>
+        <div class="vr-worker">
+          <div class="vr-workername" id="vrWorkerName"></div>
+          <div class="vr-phone" id="vrPhone"></div>
+        </div>
+        <table class="vp-table">
+          <thead><tr><th>伝票番号</th><th>商品コード／商品名</th><th>委託日</th><th>受領日</th><th class="num">単価</th><th class="num">納入数</th><th class="num">金額</th></tr></thead>
+          <tbody id="vrRows"></tbody>
+          <tfoot><tr><td colspan="6" class="vp-total-label">お支払予定金額</td><td class="num vp-total-val" id="vrTotal"></td></tr></tfoot>
+        </table>
+        <div class="vp-note" id="vrNote"></div>
+      </div>
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="btn btn-outline btn-block" id="voucherSaveBtn">PDFを保存</button>
       <button class="btn btn-primary btn-block" id="voucherShareBtn">📱 LINEで共有</button>
@@ -323,50 +369,6 @@
   </div>
 </div>
 
-<div id="voucherPrintHolder" style="position:absolute; top:0; left:0; opacity:0; pointer-events:none; z-index:-1; overflow:visible;">
-  <div id="voucherPrint" class="voucher-print">
-    <div class="vp-header">
-      <div class="vp-title">商品加工委託伝票</div>
-      <div class="vp-companyblock">
-        <div class="vp-date" id="vpDate"></div>
-        <div class="vp-company">奈良市西九条2-5-10</div>
-        <div class="vp-company">株式会社ラインシステム</div>
-      </div>
-    </div>
-    <div class="vp-meta">
-      <div class="vp-row"><span class="vp-label">伝票番号</span><span class="vp-val mono" id="vpVoucherNo"></span></div>
-      <div class="vp-row"><span class="vp-label">引渡日</span><span class="vp-val" id="vpDeliveryDate"></span></div>
-      <div class="vp-row"><span class="vp-label">委託先</span><span class="vp-val" id="vpWorker"></span></div>
-    </div>
-    <table class="vp-table">
-      <thead><tr><th>商品コード</th><th>商品名</th><th class="num">数量</th><th class="num">単価</th><th class="num">金額</th></tr></thead>
-      <tbody id="vpRows"></tbody>
-      <tfoot><tr><td colspan="4" class="vp-total-label">計</td><td class="num vp-total-val" id="vpTotal"></td></tr></tfoot>
-    </table>
-    <div class="vp-note" id="vpNote"></div>
-  </div>
-
-  <div id="voucherPrintReceive" class="voucher-print">
-    <div class="vp-header">
-      <div class="vp-title">委託商品受領書</div>
-      <div class="vp-companyblock">
-        <div class="vp-date" id="vrDate"></div>
-        <div class="vp-company">奈良市西九条2-5-10</div>
-        <div class="vp-company">株式会社ラインシステム</div>
-      </div>
-    </div>
-    <div class="vr-worker">
-      <div class="vr-workername" id="vrWorkerName"></div>
-      <div class="vr-phone" id="vrPhone"></div>
-    </div>
-    <table class="vp-table">
-      <thead><tr><th>伝票番号</th><th>商品コード／商品名</th><th>委託日</th><th>受領日</th><th class="num">単価</th><th class="num">納入数</th><th class="num">金額</th></tr></thead>
-      <tbody id="vrRows"></tbody>
-      <tfoot><tr><td colspan="6" class="vp-total-label">お支払予定金額</td><td class="num vp-total-val" id="vrTotal"></td></tr></tfoot>
-    </table>
-    <div class="vp-note" id="vrNote"></div>
-  </div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -745,16 +747,24 @@ function renderLog(){
 async function registerShipment(){
   if(shipCart.length===0){ toast('商品を追加してください'); return; }
   const note = document.getElementById('shipNoteInput').value.trim();
+  const dateVal = document.getElementById('shipDateInput').value; // YYYY-MM-DD
+  const now = new Date();
+  let ts = now.getTime();
+  if(dateVal){
+    const [y,m,d] = dateVal.split('-').map(Number);
+    ts = new Date(y, m-1, d, now.getHours(), now.getMinutes(), now.getSeconds()).getTime();
+  }
   const entries = shipCart.map((c,i)=>({ productCode:c.productCode, productName:c.productName, jan:c.jan, qty:c.qty, note: i===0?note:'' }));
   const btn = document.getElementById('registerShipBtn');
   btn.disabled = true; btn.textContent = '登録中…';
-  const res = await apiPost({ action:'add_shipment_batch', entries, worker:{code:selectedWorker.c, name:selectedWorker.n} });
+  const res = await apiPost({ action:'add_shipment_batch', entries, worker:{code:selectedWorker.c, name:selectedWorker.n}, ts });
   btn.disabled = false; btn.textContent = 'この内容で出荷を登録する';
   if(!res || res.error){ toast('登録に失敗しました：'+(res&&res.error||'')); return; }
   toast(`出荷を登録しました（${res.record.voucherNo}）：${entries.length}点`);
   openVoucherModalShip(res.record);
   shipCart = [];
   document.getElementById('shipNoteInput').value='';
+  document.getElementById('shipDateInput').value = todayStr();
   renderShipCart();
   await loadAll();
 }
@@ -844,8 +854,8 @@ function openVoucherModalReceive(record){
 }
 
 function showVoucherPreview(templateId){
-  const src = document.getElementById(templateId);
-  document.getElementById('voucherPreviewWrap').innerHTML = src.outerHTML;
+  document.getElementById('voucherPrint').classList.toggle('active', templateId==='voucherPrint');
+  document.getElementById('voucherPrintReceive').classList.toggle('active', templateId==='voucherPrintReceive');
   document.getElementById('voucherModal').style.display = 'flex';
   window.__lastVoucherTemplateId = templateId;
 }
@@ -853,20 +863,22 @@ function closeVoucherModal(){ document.getElementById('voucherModal').style.disp
 
 async function generateVoucherPdfBlob(){
   const el = document.getElementById(window.__lastVoucherTemplateId);
-  const canvas = await html2canvas(el, {
-    scale: 2, backgroundColor: '#ffffff',
-    scrollX: 0, scrollY: -window.scrollY,
-    windowWidth: document.documentElement.scrollWidth,
-    windowHeight: document.documentElement.scrollHeight,
-    useCORS: true
-  });
+  const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
   const imgData = canvas.toDataURL('image/png');
   const { jsPDF } = window.jspdf;
-  const pageWidth = 210;
-  const imgWidth = pageWidth;
-  const imgHeight = canvas.height * imgWidth / canvas.width;
-  const pdf = new jsPDF({ unit:'mm', format:[pageWidth, imgHeight] });
-  pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+  const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 8;
+  const maxW = pageW - margin*2;
+  const maxH = pageH - margin*2;
+  const ratio = canvas.height / canvas.width;
+  let drawW = maxW;
+  let drawH = drawW * ratio;
+  if(drawH > maxH){ drawH = maxH; drawW = drawH / ratio; }
+  const offsetX = (pageW - drawW) / 2;
+  const offsetY = margin;
+  pdf.addImage(imgData, 'PNG', offsetX, offsetY, drawW, drawH);
   return pdf.output('blob');
 }
 function voucherFileNameBase(){
@@ -944,6 +956,7 @@ function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout
 async function init(){
   if(!gasConfigured()){ document.getElementById('gasWarning').style.display='block'; }
   document.getElementById('filterDate').value = todayStr();
+  document.getElementById('shipDateInput').value = todayStr();
 
   document.getElementById('modeShipBtn').onclick = ()=>setMode('ship');
   document.getElementById('modeReceiveBtn').onclick = ()=>setMode('receive');
