@@ -316,13 +316,14 @@
       <button class="btn btn-outline btn-block" id="voucherSaveBtn">PDFを保存</button>
       <button class="btn btn-primary btn-block" id="voucherShareBtn">📱 LINEで共有</button>
     </div>
+    <button class="btn btn-ghost btn-block" id="voucherCopyMsgBtn" style="margin-top:8px;">📋 メッセージ文をコピー</button>
     <div style="font-size:11px; color:var(--ink-soft); margin-top:10px; line-height:1.5;">
-      「LINEで共有」はスマホでのみ使えます。押すとPDFが作成され、共有メニューが開くのでLINEを選んでください。
+      「LINEで共有」はスマホでのみ使えます。押すとPDFが作成され、共有メニューが開くのでLINEを選んでください。アプリによっては文章が一緒に送られない場合があるので、その時は「メッセージ文をコピー」でLINEにペーストしてください。
     </div>
   </div>
 </div>
 
-<div id="voucherPrintHolder" style="position:fixed; left:-9999px; top:0;">
+<div id="voucherPrintHolder" style="position:absolute; top:0; left:0; opacity:0; pointer-events:none; z-index:-1; overflow:visible;">
   <div id="voucherPrint" class="voucher-print">
     <div class="vp-header">
       <div class="vp-title">商品加工委託伝票</div>
@@ -786,6 +787,7 @@ function fmtNum(n){
 function todayJpStr(){ const d=new Date(); return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`; }
 
 function openVoucherModalShip(record){
+  window.__lastVoucherRecord = { type:'ship', record };
   document.getElementById('vpDate').textContent = todayJpStr();
   document.getElementById('vpVoucherNo').textContent = record.voucherNo;
   document.getElementById('vpDeliveryDate').textContent = record.date;
@@ -812,6 +814,7 @@ function openVoucherModalShip(record){
 }
 
 function openVoucherModalReceive(record){
+  window.__lastVoucherRecord = { type:'receive', record };
   const workerMaster = WORKERS.find(w=>w.c===record.workerCode);
   document.getElementById('vrDate').textContent = todayJpStr();
   document.getElementById('vrWorkerName').textContent = record.workerName + ' 様';
@@ -850,7 +853,13 @@ function closeVoucherModal(){ document.getElementById('voucherModal').style.disp
 
 async function generateVoucherPdfBlob(){
   const el = document.getElementById(window.__lastVoucherTemplateId);
-  const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+  const canvas = await html2canvas(el, {
+    scale: 2, backgroundColor: '#ffffff',
+    scrollX: 0, scrollY: -window.scrollY,
+    windowWidth: document.documentElement.scrollWidth,
+    windowHeight: document.documentElement.scrollHeight,
+    useCORS: true
+  });
   const imgData = canvas.toDataURL('image/png');
   const { jsPDF } = window.jspdf;
   const pageWidth = 210;
@@ -867,6 +876,22 @@ function voucherFileNameBase(){
   const vn = (vnEl && vnEl.textContent) || (nameEl && nameEl.textContent) || 'voucher';
   return vn.replace(/[^\w\-]/g,'') || 'voucher';
 }
+function buildShareMessage(){
+  const lv = window.__lastVoucherRecord;
+  if(!lv) return '';
+  const r = lv.record;
+  if(lv.type==='ship'){
+    const lines = r.items.map(it=>`・${it.productName}（${it.productCode}）×${it.qty}`).join('\n');
+    return `【出荷（依頼）伝票 ${r.voucherNo}】\n${r.workerName} 様\n引渡日：${r.date}\n\n${lines}`;
+  } else {
+    const lines = r.items.map(it=>{
+      const tag = it.finalizeType ? '（打切り）' : '';
+      return `・${it.productName}（${it.productCode}）×${it.qty}${tag}　委託日:${it.shipmentDate||'－'}`;
+    }).join('\n');
+    return `【入荷（受領）伝票 ${r.voucherNo}】\n${r.workerName} 様\n受領日：${r.date}\n\n${lines}`;
+  }
+}
+
 async function handleVoucherSave(){
   const btn = document.getElementById('voucherSaveBtn');
   btn.disabled = true; btn.textContent = '作成中…';
@@ -887,8 +912,9 @@ async function handleVoucherShare(){
     const blob = await generateVoucherPdfBlob();
     const fileName = `伝票_${voucherFileNameBase()}.pdf`;
     const file = new File([blob], fileName, { type:'application/pdf' });
+    const message = buildShareMessage();
     if(navigator.canShare && navigator.canShare({ files:[file] })){
-      await navigator.share({ files:[file], title:'伝票', text:fileName });
+      await navigator.share({ files:[file], title:'伝票', text: message });
     } else {
       toast('この端末では共有機能が使えないため、PDFを保存します');
       const url = URL.createObjectURL(blob);
@@ -899,6 +925,17 @@ async function handleVoucherShare(){
     }
   }catch(e){ if(e && e.name!=='AbortError'){ console.error(e); toast('共有に失敗しました'); } }
   btn.disabled = false; btn.textContent = '📱 LINEで共有';
+}
+
+async function handleCopyMessage(){
+  const msg = buildShareMessage();
+  try{
+    await navigator.clipboard.writeText(msg);
+    toast('メッセージ文をコピーしました');
+  }catch(e){
+    console.error(e);
+    toast('コピーに失敗しました');
+  }
 }
 
 function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -928,6 +965,7 @@ async function init(){
   document.getElementById('voucherCloseBtn').onclick = closeVoucherModal;
   document.getElementById('voucherSaveBtn').onclick = handleVoucherSave;
   document.getElementById('voucherShareBtn').onclick = handleVoucherShare;
+  document.getElementById('voucherCopyMsgBtn').onclick = handleCopyMessage;
 
   document.getElementById('filterDate').addEventListener('change', renderLog);
   document.getElementById('filterWorker').addEventListener('change', renderLog);
