@@ -398,6 +398,18 @@ let shipCart = [];
 let receiveSelections = {};
 let allShipments = [];
 let allReceipts = [];
+let activeWorkerCodes = null; // null = not yet computed (show all); Set once computed
+
+function computeActiveWorkers(){
+  const sixMonthsAgo = Date.now() - 180*24*60*60*1000;
+  const map = new Map();
+  [...allShipments, ...allReceipts].forEach(e=>{
+    const cur = map.get(e.workerCode) || 0;
+    if(e.ts > cur) map.set(e.workerCode, e.ts);
+  });
+  activeWorkerCodes = new Set();
+  map.forEach((lastTs, code)=>{ if(lastTs >= sixMonthsAgo) activeWorkerCodes.add(code); });
+}
 
 function gasConfigured(){ return !!GAS_URL && GAS_URL.indexOf('PUT_YOUR_GAS_WEB_APP_URL_HERE')<0; }
 async function apiListAll(){
@@ -473,7 +485,9 @@ function renderWorkerChip(){
 function renderWorkerList(filter){
   const list = document.getElementById('workerList');
   const f = (filter||'').trim().toLowerCase();
-  const filtered = WORKERS.filter(w=> !f || w.n.toLowerCase().includes(f) || w.c.toLowerCase().includes(f));
+  let base = WORKERS;
+  if(activeWorkerCodes){ base = WORKERS.filter(w=> activeWorkerCodes.has(w.c)); }
+  const filtered = base.filter(w=> !f || w.n.toLowerCase().includes(f) || w.c.toLowerCase().includes(f));
   if(filtered.length===0){ list.innerHTML = '<div class="empty">該当する内職さんがいません</div>'; return; }
   list.innerHTML = filtered.map(w=>{
     const t = workerType(w.n);
@@ -669,6 +683,8 @@ async function loadAll(){
   const data = await apiListAll();
   allShipments = data.shipments.map(s=>({...s, ts:Number(s.ts), qty:Number(s.qty), returnedQty:Number(s.returnedQty), remaining:Number(s.remaining)}));
   allReceipts = data.receipts.map(r=>({...r, ts:Number(r.ts), qty:Number(r.qty)}));
+  computeActiveWorkers();
+  if(!selectedWorker){ renderWorkerList(document.getElementById('workerSearch').value); }
   populateWorkerFilter();
   renderLog();
   if(mode==='receive') renderOpenShipmentList(document.getElementById('openFilterSearch').value);
