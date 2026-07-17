@@ -684,7 +684,7 @@ async function loadAll(){
   allShipments = data.shipments.map(s=>({...s, ts:Number(s.ts), qty:Number(s.qty), returnedQty:Number(s.returnedQty), remaining:Number(s.remaining)}));
   allReceipts = data.receipts.map(r=>({...r, ts:Number(r.ts), qty:Number(r.qty)}));
   computeActiveWorkers();
-  if(!selectedWorker){ renderWorkerList(document.getElementById('workerSearch').value); }
+  renderWorkerList(document.getElementById('workerSearch').value);
   populateWorkerFilter();
   renderLog();
   if(mode==='receive') renderOpenShipmentList(document.getElementById('openFilterSearch').value);
