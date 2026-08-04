@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>レシート自動リネーム</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.5/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --border:#e2e4e8; --text:#1f2328; --muted:#6b7280;
+    --accent:#2563eb; --accent-hover:#1d4ed8; --ok:#16a34a; --warn:#d97706; --danger:#dc2626;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+    background:var(--bg); color:var(--text); padding:24px;
+  }
+  .wrap{max-width:960px; margin:0 auto;}
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 20px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:10px;
+    padding:20px; margin-bottom:16px;
+  }
+  .drop{
+    border:2px dashed var(--border); border-radius:10px; padding:36px 20px; text-align:center;
+    color:var(--muted); cursor:pointer; transition:border-color .15s,background .15s;
+  }
+  .drop.drag{border-color:var(--accent); background:#eff4ff;}
+  .drop input{display:none;}
+  .drop .icon{font-size:28px; margin-bottom:8px;}
+  .queue{margin-top:16px; display:flex; flex-direction:column; gap:12px;}
+  .item{
+    border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; gap:14px;
+    align-items:flex-start; background:#fbfbfc;
+  }
+  .item .thumb{
+    width:64px; height:64px; border-radius:6px; background:#eee; flex-shrink:0; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--muted);
+  }
+  .item .thumb img{width:100%; height:100%; object-fit:cover;}
+  .item .body{flex:1; min-width:0;}
+  .item .orig{font-size:12px; color:var(--muted); margin-bottom:6px; word-break:break-all;}
+  .status{font-size:12px; padding:2px 8px; border-radius:99px; display:inline-block; margin-bottom:8px;}
+  .status.processing{background:#fef3c7; color:var(--warn);}
+  .status.done{background:#dcfce7; color:var(--ok);}
+  .status.error{background:#fee2e2; color:var(--danger);}
+  .fields{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:8px;}
+  .fields label{font-size:11px; color:var(--muted); display:block; margin-bottom:3px;}
+  .fields input{
+    width:100%; padding:7px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px;
+    font-family:inherit;
+  }
+  .fields input:focus{outline:none; border-color:var(--accent);}
+  .preview-name{
+    margin-top:10px; font-size:13px; font-weight:600; color:var(--text);
+    background:#f0f4ff; border:1px solid #d6e0fd; border-radius:6px; padding:8px 10px;
+    word-break:break-all;
+  }
+  .actions{display:flex; gap:8px; margin-top:10px;}
+  button{
+    font-family:inherit; font-size:13px; border-radius:6px; padding:7px 14px; cursor:pointer;
+    border:1px solid var(--border); background:#fff; color:var(--text);
+  }
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  button.primary:hover{background:var(--accent-hover);}
+  button:disabled{opacity:.5; cursor:not-allowed;}
+  .rawtext{
+    margin-top:8px; font-size:11px; color:var(--muted); max-height:70px; overflow:auto;
+    background:#f8f8f9; border-radius:6px; padding:6px 8px; white-space:pre-wrap; display:none;
+  }
+  .toggle-raw{font-size:11px; color:var(--accent); cursor:pointer; margin-top:6px; display:inline-block;}
+  .footer-actions{display:flex; justify-content:flex-end; margin-top:4px;}
+  .hint{font-size:12px; color:var(--muted); line-height:1.6;}
+  .badge-format{font-size:11px; color:var(--muted); margin-left:6px;}
+  .chips{display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; min-height:0;}
+  .chip{
+    font-size:11px; padding:3px 8px; border-radius:99px; border:1px solid var(--border);
+    background:#fff; color:var(--text); cursor:pointer; max-width:160px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  .chip:hover{border-color:var(--accent); color:var(--accent);}
+  .chip.selected{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .chip.guess{border-style:dashed;}
+  .chips-label{font-size:10px; color:var(--muted); margin-top:6px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>レシート自動リネーム</h1>
+  <p class="sub">画像・PDFのレシート／請求書をアップロードすると、OCRで内容を読み取り「取引先名_日付_金額」形式のファイル名を自動生成します（無料OCR・完全ローカル動作／ファイルは外部送信されません）。</p>
+
+  <div class="card">
+    <div class="drop" id="dropZone">
+      <div class="icon">📄</div>
+      <div>ここにファイルをドラッグ＆ドロップ、またはクリックして選択</div>
+      <div class="hint" style="margin-top:6px;">対応形式: JPG / PNG / PDF（複数選択可）</div>
+      <input type="file" id="fileInput" multiple accept="image/*,application/pdf">
+    </div>
+    <div class="queue" id="queue"></div>
+  </div>
+
+  <div class="card hint">
+    <strong>使い方</strong><br>
+    ① ファイルを追加 → 自動でOCR処理が始まります<br>
+    ② 「取引先名」「日付」「金額」は自動抽出されますが、必ず内容を確認し、間違っていれば修正してください<br>
+    ③ ファイル名を確認して「ダウンロード」を押すと、新しいファイル名で保存されます（元ファイルは変更されません）<br>
+  </div>
+</div>
+
+<script>
+const { jsPDF } = {}; // not used, placeholder to avoid confusion
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const queue = document.getElementById('queue');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+let itemCounter = 0;
+
+function handleFiles(fileList) {
+  Array.from(fileList).forEach(file => addItem(file));
+}
+
+function sanitizeForFilename(str) {
+  if (!str) return '';
+  return str.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '').trim();
+}
+
+function buildFilename(vendor, date, amount, note, ext) {
+  const v = sanitizeForFilename(vendor) || '取引先未確認';
+  const d = sanitizeForFilename(date) || '日付未確認';
+  const a = sanitizeForFilename(amount);
+  const amountPart = a || '金額未確認';
+  const n = sanitizeForFilename(note);
+  const notePart = n ? `(${n})` : '';
+  return `${v}_${d}_${amountPart}${notePart}${ext}`;
+}
+
+function addItem(file) {
+  const id = 'item-' + (++itemCounter);
+  const ext = (file.name.match(/\.[^.]+$/) || [''])[0];
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.id = id;
+  el.innerHTML = `
+    <div class="thumb" id="${id}-thumb">${isPdf ? 'PDF' : ''}</div>
+    <div class="body">
+      <div class="orig">元ファイル名: ${file.name}<span class="badge-format">${isPdf ? '(PDF)' : '(画像)'}</span></div>
+      <span class="status processing" id="${id}-status">OCR処理中...</span>
+      <div class="fields">
+        <div>
+          <label>取引先名</label>
+          <input type="text" id="${id}-vendor" placeholder="例: ○○商店">
+          <div class="chips" id="${id}-vendor-chips"></div>
+        </div>
+        <div>
+          <label>日付 (YYYYMMDD)</label>
+          <input type="text" id="${id}-date" placeholder="例: 20260803">
+          <div class="chips" id="${id}-date-chips"></div>
+        </div>
+        <div>
+          <label>金額（数字のみ）</label>
+          <input type="text" id="${id}-amount" placeholder="例: 3000">
+          <div class="chips" id="${id}-amount-chips"></div>
+        </div>
+      </div>
+      <div class="chips-label" id="${id}-chips-hint" style="display:none;">↑ OCRが認識した候補をクリックすると入力できます</div>
+      <div style="margin-top:8px;">
+        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:3px;">備考（任意・入力時のみファイル名の末尾に(　)で追加）</label>
+        <input type="text" id="${id}-note" placeholder="例: 2件合算" style="width:100%; padding:7px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit;">
+        <div class="chips" id="${id}-note-chips"></div>
+      </div>
+      <div class="preview-name" id="${id}-preview">ファイル名を生成中...</div>
+      <span class="toggle-raw" id="${id}-toggle">認識したテキストを表示</span>
+      <div class="rawtext" id="${id}-raw"></div>
+      <div class="actions">
+        <button class="primary" id="${id}-download" disabled>ダウンロード</button>
+      </div>
+    </div>
+  `;
+  queue.appendChild(el);
+
+  const vendorInput = el.querySelector(`#${id}-vendor`);
+  const dateInput = el.querySelector(`#${id}-date`);
+  const amountInput = el.querySelector(`#${id}-amount`);
+  const noteInput = el.querySelector(`#${id}-note`);
+  const previewEl = el.querySelector(`#${id}-preview`);
+  const downloadBtn = el.querySelector(`#${id}-download`);
+  const toggleRaw = el.querySelector(`#${id}-toggle`);
+  const rawEl = el.querySelector(`#${id}-raw`);
+  const vendorChips = el.querySelector(`#${id}-vendor-chips`);
+  const dateChips = el.querySelector(`#${id}-date-chips`);
+  const amountChips = el.querySelector(`#${id}-amount-chips`);
+  const noteChips = el.querySelector(`#${id}-note-chips`);
+  const chipsHint = el.querySelector(`#${id}-chips-hint`);
+
+  function updatePreview() {
+    const name = buildFilename(vendorInput.value, dateInput.value, amountInput.value, noteInput.value, ext);
+    previewEl.textContent = '→ ' + name;
+    downloadBtn.dataset.filename = name;
+  }
+  [vendorInput, dateInput, amountInput, noteInput].forEach(inp => inp.addEventListener('input', updatePreview));
+
+  toggleRaw.addEventListener('click', () => {
+    rawEl.style.display = rawEl.style.display === 'block' ? 'none' : 'block';
+    toggleRaw.textContent = rawEl.style.display === 'block' ? '認識したテキストを隠す' : '認識したテキストを表示';
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const filename = downloadBtn.dataset.filename;
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  function selectChip(container, inputEl, value) {
+    inputEl.value = value;
+    updatePreview();
+    container.querySelectorAll('.chip').forEach(c => {
+      c.classList.toggle('selected', c.textContent === value);
+    });
+  }
+
+  function renderChips(container, inputEl, candidates) {
+    container.innerHTML = '';
+    if (!candidates.length) return;
+    candidates.forEach((c, i) => {
+      const btn = document.createElement('div');
+      btn.className = 'chip' + (i === 0 ? ' guess' : '') + (c === inputEl.value ? ' selected' : '');
+      btn.textContent = c;
+      btn.title = c;
+      btn.addEventListener('click', () => selectChip(container, inputEl, c));
+      container.appendChild(btn);
+    });
+  }
+
+  processFile(file, isPdf, id, {
+    vendorInput, dateInput, amountInput, noteInput, previewEl, downloadBtn, rawEl, updatePreview,
+    vendorChips, dateChips, amountChips, noteChips, chipsHint, renderChips
+  });
+}
+
+async function processFile(file, isPdf, id, refs) {
+  const statusEl = document.getElementById(`${id}-status`);
+  const thumbEl = document.getElementById(`${id}-thumb`);
+  try {
+    let ocrSource; // image element / canvas to feed tesseract
+    let layerText = '';
+    let hasTextLayer = false;
+
+    if (isPdf) {
+      const arrayBuf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 3.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const thumbCanvas = canvas.toDataURL('image/png');
+      thumbEl.innerHTML = `<img src="${thumbCanvas}">`;
+      ocrSource = canvas;
+
+      // Many invoices/receipts are generated as real documents (not scans) and
+      // carry an embedded text layer - reading it directly is far more accurate
+      // than OCR. But some PDFs put dates/amounts into fillable form fields,
+      // which do NOT show up in the text layer, so OCR is still run below as a
+      // safety net and both results are merged together for parsing.
+      try {
+        const textContent = await page.getTextContent();
+        const rawLayerText = textContent.items.map(it => it.str + (it.hasEOL ? '\n' : '')).join('');
+        if (rawLayerText.replace(/\s/g, '').length > 20) {
+          layerText = rawLayerText;
+          hasTextLayer = true;
+        }
+      } catch (e) {
+        // no text layer available - OCR below will cover it
+      }
+
+      // Fillable form field values (AcroForm widgets) live in annotations, not
+      // in the text content stream, and are also invisible to OCR unless the
+      // viewer rendered them onto the page - grab them explicitly too.
+      try {
+        const annotations = await page.getAnnotations();
+        const fieldText = annotations
+          .map(a => (a.fieldValue != null ? String(a.fieldValue) : ''))
+          .filter(Boolean)
+          .join('\n');
+        if (fieldText) layerText += '\n' + fieldText;
+      } catch (e) {
+        // ignore
+      }
+    } else {
+      const dataUrl = await fileToDataUrl(file);
+      thumbEl.innerHTML = `<img src="${dataUrl}">`;
+      ocrSource = dataUrl;
+    }
+
+    statusEl.textContent = 'OCR処理中...';
+    const result = await Tesseract.recognize(ocrSource, 'jpn+eng', {
+      logger: () => {}
+    });
+    const ocrText = result.data.text || '';
+
+    // Combine every source we have - the text layer/form fields (accurate but
+    // may be incomplete) and OCR (covers anything rendered only as an image).
+    const text = [layerText, ocrText].filter(Boolean).join('\n');
+    refs.rawEl.textContent = text.trim() || '(テキストが認識できませんでした)';
+
+    const parsed = parseReceiptText(text);
+    refs.vendorInput.value = parsed.vendor;
+    refs.dateInput.value = parsed.date;
+    refs.amountInput.value = parsed.amount;
+    // Note stays empty by default (no note is the common case) - the auto-generated
+    // note (e.g. "3件合算") is still offered as a one-click chip below, not pre-filled.
+    refs.noteInput.value = '';
+    refs.updatePreview();
+
+    const candidates = getAllCandidates(text, parsed);
+    refs.renderChips(refs.vendorChips, refs.vendorInput, candidates.vendor);
+    refs.renderChips(refs.dateChips, refs.dateInput, candidates.date);
+    refs.renderChips(refs.amountChips, refs.amountInput, candidates.amount);
+    refs.renderChips(refs.noteChips, refs.noteInput, candidates.note);
+    if (candidates.vendor.length || candidates.date.length || candidates.amount.length || candidates.note.length) {
+      refs.chipsHint.style.display = 'block';
+    }
+
+    statusEl.textContent = hasTextLayer
+      ? '完了・PDF内のテキスト情報とOCRを併用（内容を確認してください）'
+      : '完了（内容を確認してください）';
+    statusEl.className = 'status done';
+    refs.downloadBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'OCR失敗（手動で入力してください）';
+    statusEl.className = 'status error';
+    refs.updatePreview();
+    refs.downloadBtn.disabled = false;
+  }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---- Parsing heuristics ----
+
+function toHalfWidth(str) {
+  return str.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+            .replace(/[／]/g, '/')
+            .replace(/[－]/g, '-');
+}
+
+function parseReceiptText(rawText) {
+  const text = toHalfWidth(rawText);
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const amountResult = guessAmountWithNote(text, lines);
+
+  return {
+    vendor: guessVendor(lines),
+    date: guessDate(text),
+    amount: amountResult.value,
+    note: amountResult.note
+  };
+}
+
+// Builds click-to-select candidate lists for each field, so a wrong auto-guess
+// can be fixed with one click instead of retyping. The auto-guess (if any) is
+// always listed first.
+function getAllCandidates(rawText, parsed) {
+  const text = toHalfWidth(rawText);
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  return {
+    vendor: dedupeWithFirst(parsed.vendor, lines.filter(l => l.length >= 2 && l.length <= 40)),
+    date: dedupeWithFirst(parsed.date, getDateCandidates(text)),
+    amount: dedupeWithFirst(parsed.amount, getAmountCandidates(text, lines)),
+    // 備考 has no dedicated detection logic - offer every recognized line (including
+    // short symbol-only fragments, e.g. "※", "軽減税率対象") as a pickable candidate.
+    note: dedupeWithFirst(parsed.note, lines.filter(l => l.length >= 1 && l.length <= 40))
+  };
+}
+
+function dedupeWithFirst(first, arr) {
+  const result = [];
+  if (first) result.push(first);
+  arr.forEach(v => {
+    if (v && !result.includes(v)) result.push(v);
+  });
+  return result.slice(0, 15);
+}
+
+function getDateCandidates(text) {
+  const results = [];
+  const re1 = /(20\d{2})\s*[年\/\-\.]\s*(\d{1,2})\s*[月\/\-\.]\s*(\d{1,2})\s*日?/g;
+  let m;
+  while ((m = re1.exec(text))) {
+    results.push(`${m[1]}${pad2(m[2])}${pad2(m[3])}`);
+  }
+  const re2 = /(令和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+  while ((m = re2.exec(text))) {
+    results.push(`${2018 + parseInt(m[2], 10)}${pad2(m[3])}${pad2(m[4])}`);
+  }
+  const re3 = /(平成)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+  while ((m = re3.exec(text))) {
+    results.push(`${1988 + parseInt(m[2], 10)}${pad2(m[3])}${pad2(m[4])}`);
+  }
+  return results;
+}
+
+function getAmountCandidates(text, lines) {
+  const results = [];
+  const widerKeywordRegex = /(合計|ご合計|お会計|総額|税込合計|合計金額|請求金額|お支払金額|支払金額|小計|税抜金額|消費税|御請求)/;
+  findKeywordAmounts(lines, widerKeywordRegex).forEach(n => results.push(String(n)));
+
+  const currencyMatches = [...text.matchAll(/[¥￥]\s?([\d,]{3,})|([\d,]{3,})\s?円/g)];
+  currencyMatches.forEach(m => {
+    const raw = (m[1] || m[2] || '').replace(/,/g, '');
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n > 0) results.push(String(n));
+  });
+  // plain comma-grouped numbers (no ¥/円 nearby) - common for invoice totals
+  [...text.matchAll(/\b\d{1,3}(?:,\d{3})+\b/g)].forEach(m => {
+    const n = parseInt(m[0].replace(/,/g, ''), 10);
+    if (!isNaN(n) && n > 0) results.push(String(n));
+  });
+  // Last-resort net: any standalone 3+ digit number not glued to a letter (so
+  // fragments of registration numbers / invoice codes like "T7120001048200"
+  // are excluded). Ensures the chip list is rarely empty even on messy OCR.
+  [...text.matchAll(/(?<![A-Za-z0-9])\d{3,}(?![A-Za-z0-9])/g)].forEach(m => {
+    const n = parseInt(m[0], 10);
+    if (!isNaN(n) && n > 0) results.push(String(n));
+  });
+  return results;
+}
+
+function guessVendor(lines) {
+  const skipPatterns = /^(レシート|領収書|請求書|明細|お客様|各位|no\.?\s*[:：]?|tel|fax|〒|株式会社$|登録番号|invoice|receipt)/i;
+  const dateLikePattern = /(20\d{2}|令和|平成|\d{1,2}\s*年\s*\d{1,2}\s*月|\d{1,2}[\/\-]\d{1,2})/;
+  const phoneLikePattern = /(tel|fax|電話)[:：]?\s*[\d\-]{8,}|^\d[\d\-]{8,}$/i;
+  const addressLikePattern = /(都|道府県|区|市|町|村)\d*[-0-9]*$/;
+  // Lines made only of latin letters/digits/punctuation (no Japanese) look like
+  // order numbers, invoice codes, registration numbers etc. - not a vendor name.
+  const codeLikePattern = /^[A-Za-z0-9\-\.\/:：#]{4,}$/;
+  // A line ending in 様/御中 is addressed TO someone - that's the customer, not the vendor.
+  const customerAddresseePattern = /(様|御中)\s*[:：]?$/;
+  // Bank transfer details, page numbers, and document-type headers are never the vendor name,
+  // even though they can appear early in the document and slip past the other filters.
+  const adminNoisePattern = /(銀行|口座|当座|普通預金|振込先?|明細書|ご請求明細|page\s*\d+|登録番号|請求書$|領収書$)/i;
+
+  // Hard noise disqualifies a line no matter what (headers, addressee lines, bank details).
+  const isHardNoise = (cleaned) =>
+    cleaned.length < 2 ||
+    /^\d+$/.test(cleaned) ||
+    skipPatterns.test(cleaned) ||
+    /^(https?:\/\/|www\.)/i.test(cleaned) ||
+    customerAddresseePattern.test(cleaned) ||
+    adminNoisePattern.test(cleaned);
+
+  // Soft noise (looks like a date/phone/address/code) - but OCR often merges the company
+  // name with an adjacent address or postal code into one garbled line, so a line is only
+  // rejected for soft noise if it does NOT also contain a company-name suffix.
+  const isSoftNoise = (cleaned) =>
+    dateLikePattern.test(cleaned) ||
+    phoneLikePattern.test(cleaned) ||
+    addressLikePattern.test(cleaned) ||
+    codeLikePattern.test(cleaned);
+
+  const isNoise = (cleaned) => isHardNoise(cleaned) || isSoftNoise(cleaned);
+
+  const companySuffix = /(株式会社|有限会社|合同会社|\(株\)|\(有\)|店|商店|ストア|マート)/;
+
+  // Collect every line that looks like a company name, anywhere in the document
+  // (the issuing company on Japanese receipts/invoices is often near the bottom, next to
+  // its address/TEL/FAX block, while the top of the document is usually the customer's name).
+  // Only hard noise is applied here - a company-suffix line survives even if OCR glued an
+  // address or postal code onto the end of it.
+  const candidates = [];
+  lines.forEach((line, idx) => {
+    const cleaned = line.replace(/[|:：\-_=]+$/, '').trim();
+    if (isHardNoise(cleaned)) return;
+    if (companySuffix.test(cleaned)) candidates.push({ text: cleaned, idx });
+  });
+
+  if (candidates.length) {
+    // Prefer a candidate immediately followed by contact info (TEL/FAX/〒/URL) -
+    // that's the strongest signal it's the issuer's own info block.
+    for (const c of candidates) {
+      const nearby = lines.slice(c.idx + 1, c.idx + 4).join(' ');
+      if (/tel|fax|〒|https?:\/\/|www\./i.test(nearby)) {
+        return c.text.slice(0, 30);
+      }
+    }
+    // Otherwise assume the last company-like line in the document is the issuer.
+    return candidates[candidates.length - 1].text.slice(0, 30);
+  }
+
+  // fallback: first reasonably long non-noise line near the top
+  for (const line of lines.slice(0, 6)) {
+    const cleaned = line.trim();
+    if (!isNoise(cleaned)) {
+      return cleaned.slice(0, 30);
+    }
+  }
+  return '';
+}
+
+function guessDate(text) {
+  // OCR often inserts stray spaces around 年/月/日 (e.g. "2026 年 08 月 03 日"),
+  // so every separator allows surrounding whitespace.
+  const patterns = [
+    /(20\d{2})\s*[年\/\-\.]\s*(\d{1,2})\s*[月\/\-\.]\s*(\d{1,2})\s*日?/,
+    /(令和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/,
+    /(平成)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/,
+    /(\d{2})\s*[\/\-\.]\s*(\d{1,2})\s*[\/\-\.]\s*(\d{1,2})/
+  ];
+
+  let m = text.match(patterns[0]);
+  if (m) return `${m[1]}${pad2(m[2])}${pad2(m[3])}`;
+
+  m = text.match(patterns[1]);
+  if (m) {
+    const year = 2018 + parseInt(m[2], 10); // 令和1年 = 2019
+    return `${year}${pad2(m[3])}${pad2(m[4])}`;
+  }
+  m = text.match(patterns[2]);
+  if (m) {
+    const year = 1988 + parseInt(m[2], 10); // 平成1年 = 1989
+    return `${year}${pad2(m[3])}${pad2(m[4])}`;
+  }
+  m = text.match(patterns[3]);
+  if (m) {
+    const year = 2000 + parseInt(m[1], 10);
+    return `${year}${pad2(m[2])}${pad2(m[3])}`;
+  }
+  return '';
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+const AMOUNT_KEYWORD_REGEX = /(合計|ご合計|お会計|総額|税込合計|合計金額|請求金額|お支払金額|支払金額|御請求)/;
+
+// Table layouts often put the label ("ご請求金額") and the number in separate OCR lines,
+// so check the following line (and the one after, in case of a stray blank/garbled line)
+// when the keyword's own line has no digits.
+function findKeywordAmounts(lines, keywordRegex) {
+  const found = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!keywordRegex.test(lines[i])) continue;
+    let nums = extractNumbers(lines[i]);
+    if (!nums.length && lines[i + 1]) nums = extractNumbers(lines[i + 1]);
+    if (!nums.length && lines[i + 2]) nums = extractNumbers(lines[i + 2]);
+    found.push(...nums);
+  }
+  return found;
+}
+
+// When several money-like numbers are found with no explicit "合計"(total) keyword
+// nearby, decide whether one of them already IS the total (e.g. 税抜金額+消費税=合計,
+// where the largest number equals the sum of the others) or whether they're just
+// separate, un-totalled line items that should be added together.
+function pickOrSumAmounts(numbers) {
+  if (!numbers.length) return { value: '', note: '' };
+  if (numbers.length === 1) return { value: String(numbers[0]), note: '' };
+  const total = numbers.reduce((a, b) => a + b, 0);
+  const max = Math.max(...numbers);
+  const sumOfRest = total - max;
+  if (max === sumOfRest) {
+    // The largest number exactly accounts for all the others - it's the printed total.
+    return { value: String(max), note: '' };
+  }
+  // No candidate is clearly "the total" - treat them as itemized amounts and add them up.
+  return { value: String(total), note: `${numbers.length}件合算` };
+}
+
+function guessAmountWithNote(text, lines) {
+  const keywordLines = findKeywordAmounts(lines, AMOUNT_KEYWORD_REGEX);
+  if (keywordLines.length) {
+    return { value: String(Math.max(...keywordLines)), note: '' };
+  }
+
+  // fallback: look at all numbers formatted like currency (with comma or preceded by ¥/円)
+  const currencyMatches = [...text.matchAll(/[¥￥]\s?([\d,]{3,})|([\d,]{3,})\s?円/g)];
+  const candidates = [];
+  currencyMatches.forEach(m => {
+    const raw = (m[1] || m[2] || '').replace(/,/g, '');
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n > 0) candidates.push(n);
+  });
+  if (candidates.length) {
+    return pickOrSumAmounts(candidates);
+  }
+
+  // last-resort fallback: many Japanese invoices print the total (or line items) as
+  // plain comma-grouped numbers (e.g. "165,550") with no ¥/円 next to them at all.
+  const commaGrouped = [...text.matchAll(/\b\d{1,3}(?:,\d{3})+\b/g)]
+    .map(m => parseInt(m[0].replace(/,/g, ''), 10))
+    .filter(n => !isNaN(n) && n > 0);
+  if (commaGrouped.length) {
+    return pickOrSumAmounts(commaGrouped);
+  }
+  return { value: '', note: '' };
+}
+
+function guessAmount(text, lines) {
+  return guessAmountWithNote(text, lines).value;
+}
+
+function extractNumbers(str) {
+  const matches = [...str.matchAll(/[\d,]{3,}/g)];
+  return matches
+    .map(m => parseInt(m[0].replace(/,/g, ''), 10))
+    .filter(n => !isNaN(n) && n > 0);
+}
+</script>
+</body>
+</html>
