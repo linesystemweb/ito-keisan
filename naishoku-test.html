@@ -185,6 +185,9 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
 <section class="pane" id="p0">
   <h2 class="st">内職者を選ぶ</h2>
   <p class="sub">Access の内職者名簿から読み込んでいます。</p>
+  <div class="rowbtns" style="margin:0 0 10px">
+    <button class="btn quiet" onclick="newSlip()">入力内容を消して新しい伝票を始める</button>
+  </div>
   <div class="seg">
     <button id="sg1" class="on" onclick="setScope(1)">稼働中のみ</button>
     <button id="sg0" onclick="setScope(0)">全員</button>
@@ -233,6 +236,7 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
   <div class="rowbtns noprint">
     <button class="btn" onclick="window.print()">印刷 / PDFにする</button>
     <button class="btn ghost" onclick="shareSheet('itaku')">PDFにしてLINEで送る</button>
+    <button class="btn ghost" onclick="saveOnly('itaku')">OneDriveに保存</button>
     <button class="btn quiet" id="zoom2" onclick="toggleZoom()">原寸で見る</button>
   </div>
   <div class="printarea" id="itakuOut"></div>
@@ -243,6 +247,13 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
 <section class="pane" id="p3">
   <h2 class="st">納入を登録して受領書を出す</h2>
   <p class="sub">委託した数量に対して、実際に納まった数を入れてください。分納もそのまま扱えます。</p>
+
+  <div class="card" style="margin-bottom:14px">
+    <button class="item" onclick="toggleSlipList()" style="font-weight:700">
+      <span class="n">📂 保存済みの伝票から呼び出す</span>
+      <span class="p" id="slipCount"></span></button>
+    <div id="slipList" hidden></div>
+  </div>
   <div class="card">
     <div id="deliv"></div>
     <div class="sum"><span>お支払予定金額</span><span class="v" id="delivSum">¥0</span></div>
@@ -252,6 +263,7 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
   <div class="rowbtns noprint">
     <button class="btn" onclick="window.print()">印刷 / PDFにする</button>
     <button class="btn ghost" onclick="shareSheet('juryo')">PDFにしてLINEで送る</button>
+    <button class="btn ghost" onclick="saveOnly('juryo')">OneDriveに保存</button>
     <button class="btn quiet" onclick="commitDelivery()">この納入を確定する</button>
   </div>
   <div class="printarea" id="juryoOut"></div>
@@ -292,6 +304,20 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
     <div class="note" id="odWho" style="margin:2px 0 8px">内職者が未選択です</div>
     <input type="text" id="odFolderName" placeholder="例：中野様" onchange="odSaveMap()">
     <p class="note">名簿の氏名とフォルダ名が違う場合は、ここで直すと次回から記憶します。</p>
+  </div>
+
+  <div class="card" style="padding:14px;margin-top:12px">
+    <strong>Access への受け渡し</strong>
+    <div class="note" id="expStat" style="margin:2px 0 10px"></div>
+    <div class="rowbtns" style="margin:0">
+      <button class="btn ghost" onclick="exportCsv('onedrive',true)">未書き出しをOneDriveへ</button>
+      <button class="btn quiet" onclick="exportCsv('download',true)">未書き出しをダウンロード</button>
+    </div>
+    <div class="rowbtns" style="margin:8px 0 0">
+      <button class="btn quiet" onclick="exportCsv('onedrive',false)">すべてOneDriveへ（再書き出し）</button>
+    </div>
+    <p class="note">保存先フォルダの下に「Access取込」フォルダを作り、CSVを3本置きます。
+      委託伝票・委託伝票明細・納入明細の3つで、Accessの3テーブルに対応しています。</p>
   </div>
 
   <div id="odLog" class="note" style="white-space:pre-wrap"></div>
@@ -354,12 +380,16 @@ const PIDX=PRODUCTS.map(p=>skey(p[0])+""+skey(p[1])+""+(p[3]||""));
 const WIDX=WORKERS.map(w=>skey(w[0])+""+skey(w[1]));
 
 /* ---------- 状態 ---------- */
-const S={ step:0, scope:1, worker:null, cart:[], delivered:{}, closed:{}, zoom:"fit" };
+const S={ step:0, scope:1, worker:null, cart:[], delivered:{}, closed:{}, deliveries:[], exported:"", zoom:"fit" };
 
 /* ---------- 画面遷移 ---------- */
 function go(i){
-  if(i>=1 && i<=3 && !S.worker) return;
-  if(i>=2 && i<=3 && S.cart.length===0) return;
+  // ④ は「保存済みの伝票を呼び出す」入口でもあるので、
+  // 伝票が1枚でも保存されていれば、カートが空でも開けるようにする
+  const canDeliver = S.cart.length>0 || loadSlips().length>0;
+  if(i>=1 && i<=2 && !S.worker) return;
+  if(i===3 && !canDeliver) return;
+  if(i===2 && S.cart.length===0) return;
   S.step=i;
   for(let k=0;k<5;k++){
     document.getElementById("p"+k).classList.toggle("on",k===i);
@@ -367,9 +397,12 @@ function go(i){
   }
   document.getElementById("t1").disabled=!S.worker;
   document.getElementById("t2").disabled=S.cart.length===0;
-  document.getElementById("t3").disabled=S.cart.length===0;
+  document.getElementById("t3").disabled=!canDeliver;
   if(i===2) renderItaku();
-  if(i===3){ drawDelivery(); renderJuryo(); }
+  if(i===3){ drawSlipList();
+    const e=document.getElementById("slipList");
+    if(S.cart.length===0 && e) e.hidden=false;      // 何も読み込んでいなければ一覧を開いて見せる
+    drawDelivery(); renderJuryo(); }
   if(i===4) drawSettings();
   scrollTo(0,0);
 }
@@ -432,7 +465,7 @@ function drawCart(){
   const has=S.cart.length>0;
   document.getElementById("toSlip").disabled=!has;
   document.getElementById("t2").disabled=!has;
-  document.getElementById("t3").disabled=!has;
+  document.getElementById("t3").disabled=!(has||loadSlips().length>0);
 }
 
 /* ---------- 外部ライブラリの読み込み ----------
@@ -574,6 +607,11 @@ function restOf(i){
   const c=S.cart[i]; return Math.max(0,c.qty-(S.delivered[c.code]||0));
 }
 function drawDelivery(){
+  if(!S.cart.length){
+    document.getElementById("deliv").innerHTML=
+      '<div class="empty">上の「保存済みの伝票から呼び出す」から、<br>納入を登録したい伝票を選んでください。</div>';
+    return;
+  }
   document.getElementById("deliv").innerHTML=S.cart.map((c,i)=>{
     const done=S.delivered[c.code]||0, rest=restOf(i), closed=!!S.closed[c.code];
     const shortfall=closed&&done<c.qty ? c.qty-done : 0;   // 打ち切りで取れなかった分
@@ -670,12 +708,17 @@ function renderJuryo(){
 
 function commitDelivery(){
   let cut=0, fin=0;
+  const day=document.getElementById("jryDate").value||iso(new Date());
   delivRows().forEach(r=>{
-    if(r.qty>0) S.delivered[r.code]=(S.delivered[r.code]||0)+r.qty;
+    if(r.qty>0){
+      S.delivered[r.code]=(S.delivered[r.code]||0)+r.qty;
+      S.deliveries.push({date:day,code:r.code,qty:r.qty,price:r.price,amount:r.qty*r.price});
+    }
     const done=S.delivered[r.code]||0;
     if(r.cut){ S.closed[r.code]=true; cut++; }
     else if(done>=S.cart[r.idx].qty){ S.closed[r.code]=true; fin++; }
   });
+  saveSlip();
   drawDelivery(); renderJuryo();
   const rest=S.cart.filter(c=>!S.closed[c.code]).length;
   toast(`納入を確定しました。\n完了 ${fin} 件`+(cut?` ／ 打ち切り ${cut} 件`:"")
@@ -733,6 +776,7 @@ async function shareSheet(kind){
   if(!blob && c.building) blob=await c.building;
   if(!blob){ preparePdf(kind); blob=await c.building; }
 
+  if(kind==="itaku") saveSlip();
   if(blob){
     const file=new File([blob],pdfName(kind),{type:"application/pdf"});
     // OneDrive への保存は待たずに走らせる。await すると iOS が共有シートを開かなくなる。
@@ -949,6 +993,7 @@ function odFolderNameFor(w){
   return OD.map[w[0]] || String(w[1]).replace(/[（(].*?[)）]/g,"").trim()+"様";
 }
 function drawSettings(){
+  drawExport();
   document.getElementById("odUser").textContent = OD.account? OD.account.username : "未サインイン";
   document.getElementById("odBtn").textContent  = OD.account? "サインアウト" : "サインイン";
   document.getElementById("odFolder").textContent = OD.folder? OD.folder.path : "未設定";
@@ -980,6 +1025,208 @@ async function odUpload(blob,filename){
   return {ok:OD.folder.path+" / "+sub+" / "+filename};
 }
 
+/* =====================================================================
+   伝票の保存と呼び出し
+   委託は今日、納入は数日後。受取書を出すには、切った伝票を
+   あとから呼び出せる必要がある。
+   いまは端末内（localStorage）に保存する暫定版。
+   本番では GAS ＋ スプレッドシートに置き、どの端末からでも呼び出せて、
+   そのままAccessへの取り込み元にもする。
+   ===================================================================== */
+function loadSlips(){ return ST.get("slips",[]); }
+function storeSlips(v){ ST.set("slips",v); }
+
+function currentSlip(){
+  return {
+    no: String(document.getElementById("slipNo").value||NEXT_NO),
+    workerCode: S.worker?S.worker[0]:"",
+    workerName: S.worker?S.worker[1]:"",
+    hikiwatasi: document.getElementById("hikiwatasi").value||iso(new Date()),
+    lines: S.cart.map(c=>({...c})),
+    delivered: {...S.delivered},
+    closed: {...S.closed},
+    deliveries: (S.deliveries||[]).map(d=>({...d})),   // 納入1回ぶんずつの記録
+    exported: S.exported||"",
+    updated: new Date().toISOString()
+  };
+}
+function saveSlip(){
+  if(!S.worker || !S.cart.length) return null;
+  const sl=currentSlip(), all=loadSlips();
+  const i=all.findIndex(x=>x.no===sl.no);
+  if(i>=0){ sl.created=all[i].created; all[i]=sl; } else { sl.created=sl.updated; all.unshift(sl); }
+  storeSlips(all); drawSlipList();
+  return sl;
+}
+function slipOpen(sl){   // 未完了の品目が残っているか
+  return sl.lines.some(l=>!sl.closed[l.code] && (l.qty-(sl.delivered[l.code]||0))>0)
+      || sl.lines.some(l=>!sl.closed[l.code]);
+}
+function toggleSlipList(){
+  const e=document.getElementById("slipList");
+  e.hidden=!e.hidden; if(!e.hidden) drawSlipList();
+}
+function drawSlipList(){
+  const all=loadSlips();
+  const open=all.filter(slipOpen);
+  const c=document.getElementById("slipCount");
+  if(c) c.textContent = all.length? `未完了 ${open.length} / 全 ${all.length}` : "まだありません";
+  const box=document.getElementById("slipList"); if(!box) return;
+  box.innerHTML = all.length ? all.map((sl,i)=>{
+    const rest=sl.lines.filter(l=>!sl.closed[l.code]).length;
+    return `<button class="item" onclick="openSlip(${i})">
+      <span class="c">No.${esc(sl.no)}</span>
+      <span class="n">${esc(sl.workerName)}<br>
+        <span style="color:var(--muted);font-size:12px">引渡 ${esc(sl.hikiwatasi)} ／ ${sl.lines.length}品目</span></span>
+      <span class="p">${rest? "未完了 "+rest : "完了"}</span></button>`;
+  }).join("") : '<div class="empty">保存された伝票はありません。<br>③で「PDFにしてLINEで送る」か「OneDriveに保存」を押すと保存されます。</div>';
+}
+function openSlip(i){
+  const sl=loadSlips()[i]; if(!sl) return;
+  S.worker=WORKERS.find(w=>w[0]===sl.workerCode)||[sl.workerCode,sl.workerName,"","",1];
+  S.cart=sl.lines.map(l=>({...l}));
+  S.delivered={...sl.delivered}; S.closed={...sl.closed};
+  S.deliveries=(sl.deliveries||[]).map(d=>({...d})); S.exported=sl.exported||"";
+  document.getElementById("slipNo").value=sl.no;
+  document.getElementById("hikiwatasi").value=sl.hikiwatasi;
+  document.getElementById("whoLabel").innerHTML=`<span class="pill">${esc(S.worker[1])} 様</span>`;
+  document.getElementById("slipList").hidden=true;
+  drawCart(); drawDelivery(); renderJuryo();
+  try{drawSettings();}catch(e){}
+  toast(`伝票 No.${sl.no}（${sl.workerName} 様）を呼び出しました。`);
+}
+function newSlip(){
+  S.worker=null; S.cart=[]; S.delivered={}; S.closed={}; S.deliveries=[]; S.exported="";
+  document.getElementById("slipNo").value=nextSlipNo();
+  document.getElementById("hikiwatasi").value=iso(new Date());
+  document.getElementById("wq").value=""; document.getElementById("pq").value="";
+  drawWorkers(); drawProducts(); drawCart(); drawSlipList(); go(0);
+}
+function nextSlipNo(){
+  const used=loadSlips().map(s=>Number(s.no)).filter(x=>!isNaN(x));
+  return used.length? Math.max(NEXT_NO-1,...used)+1 : NEXT_NO;
+}
+
+/* OneDrive に保存するだけ（LINEには送らない） */
+async function saveOnly(kind){
+  if(kind==="itaku") saveSlip();
+  const c=PDFC[kind];
+  let blob=c.blob || (c.building? await c.building : null);
+  if(!blob){ preparePdf(kind); blob=await c.building; }
+  if(!blob){ toast("PDFを作れませんでした。\n理由: "+(PDF_ERR||"不明")); return; }
+  const r=await odUpload(blob,pdfName(kind)).catch(e=>({err:e.message}));
+  if(r.ok) toast("OneDriveに保存しました：\n"+r.ok);
+  else if(r.skip) toast("「⑤ 保存先」で『LINE送信と同時にOneDriveへ保存する』をオンにしてください。");
+  else toast("OneDriveへの保存に失敗：\n"+(r.err||"不明"));
+}
+
+/* =====================================================================
+   Access への受け渡し（CSV）
+   現行の3テーブルにそのまま追加できる形で書き出す。
+     ① 委託伝票.csv       → 商品加工委託伝票
+     ② 委託伝票明細.csv   → 商品加工委託伝票明細
+     ③ 納入明細.csv       → 商品加工委託伝票明細全回納入分
+   文字コードは UTF-8（BOM付き）、改行は CRLF。Access の
+   「外部データ → テキストファイル」でそのまま読めます。
+   ===================================================================== */
+function csvCell(v){
+  const t=String(v??"");
+  return /[",\r\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+}
+function toCsv(head,rows){
+  return "﻿"+[head,...rows].map(r=>r.map(csvCell).join(",")).join("\r\n")+"\r\n";
+}
+function jdate(v){ return v? String(v).replace(/-/g,"/") : ""; }
+
+function buildCsv(slips){
+  const h=[],d=[],n=[];
+  slips.forEach(sl=>{
+    h.push([sl.no, jdate(sl.hikiwatasi), sl.workerCode, sl.workerName,
+            jdate((sl.created||"").slice(0,10))]);
+    sl.lines.forEach((l,i)=>{
+      const done=sl.delivered[l.code]||0;
+      const closed=!!sl.closed[l.code];
+      const last=(sl.deliveries||[]).filter(x=>x.code===l.code).map(x=>x.date).sort().pop()||"";
+      d.push([sl.no, i+1, l.code, l.name, l.price, l.qty, done, Math.round(done*l.price),
+              closed?1:0, closed?jdate(last):"" ]);
+    });
+    (sl.deliveries||[]).forEach(x=>{
+      n.push([sl.no, jdate(x.date), x.code, x.qty, x.price, Math.round(x.amount)]);
+    });
+  });
+  return {
+    "委託伝票.csv": toCsv(["伝票番号","引渡日","内職者コード","内職者名","発行日"],h),
+    "委託伝票明細.csv": toCsv(["伝票番号","行番号","商品コード","商品名","単価","委託数量",
+                              "納入数計","納入金額計","完了","完了日"],d),
+    "納入明細.csv": toCsv(["伝票番号","納入日","商品コード","納入数","単価","納入金額"],n)
+  };
+}
+
+function pickSlips(onlyNew){
+  const all=loadSlips();
+  return onlyNew ? all.filter(s=>!s.exported) : all;
+}
+function markExported(slips){
+  const stamp=new Date().toISOString();
+  const all=loadSlips();
+  slips.forEach(sl=>{ const i=all.findIndex(x=>x.no===sl.no); if(i>=0) all[i].exported=stamp; });
+  storeSlips(all); drawSlipList(); drawExport();
+}
+
+async function exportCsv(dest,onlyNew){
+  const slips=pickSlips(onlyNew);
+  if(!slips.length){ toast(onlyNew?"未書き出しの伝票はありません。":"伝票がありません。"); return; }
+  const files=buildCsv(slips);
+  const stamp=new Date().toISOString().slice(0,10).replace(/-/g,"");
+
+  if(dest==="download"){
+    for(const [name,body] of Object.entries(files)){
+      const blob=new Blob([body],{type:"text/csv"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download=stamp+"_"+name;
+      document.body.appendChild(a); a.click(); a.remove();
+      await new Promise(r=>setTimeout(r,400));
+      URL.revokeObjectURL(url);
+    }
+    markExported(slips);
+    toast(`${slips.length} 件の伝票をCSV 3本に書き出しました。`);
+    return;
+  }
+
+  // OneDrive の保存先フォルダの下に「Access取込」フォルダを作って置く
+  if(!OD.folder){ toast("先に「保存先の親フォルダ」を設定してください。"); return; }
+  const tok=await odToken();
+  if(!tok){ toast("サインインしていません。"); return; }
+  const {driveId,itemId}=OD.folder;
+  const sub="Access取込";
+  let ng="";
+  for(const [name,body] of Object.entries(files)){
+    const blob=new Blob([body],{type:"text/csv"});
+    const path=encodeURIComponent(sub)+"/"+encodeURIComponent(stamp+"_"+name);
+    const put=()=>fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}:/${path}:/content`,
+      {method:"PUT",headers:{Authorization:"Bearer "+tok,"Content-Type":"text/csv"},body:blob});
+    let r=await put();
+    if(r.status===404){
+      await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/children`,
+        {method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
+         body:JSON.stringify({name:sub,folder:{},"@microsoft.graph.conflictBehavior":"replace"})}).catch(()=>{});
+      r=await put();
+    }
+    if(!r.ok) ng+=name+"("+r.status+") ";
+  }
+  if(ng){ toast("一部を保存できませんでした： "+ng); return; }
+  markExported(slips);
+  toast(`${slips.length} 件の伝票を書き出しました。\n${OD.folder.path} / ${sub} / ${stamp}_*.csv`);
+}
+
+function drawExport(){
+  const e=document.getElementById("expStat"); if(!e) return;
+  const all=loadSlips(), neu=all.filter(s=>!s.exported);
+  e.textContent = all.length
+    ? `保存済み ${all.length} 件のうち、まだ書き出していない伝票は ${neu.length} 件です。`
+    : "まだ伝票がありません。";
+}
+
 /* ---------- 起動 ---------- */
 if(PUBLIC_DEMO){
   const tag=document.querySelector(".top h1 .tag");
@@ -990,7 +1237,7 @@ if(PUBLIC_DEMO){
   b.textContent="郵便番号・電話番号は含めていません。受領書の連絡先欄は空欄で出ます。";
   document.querySelector("header.top").appendChild(b);
 }
-document.getElementById("slipNo").value=NEXT_NO;
+document.getElementById("slipNo").value=nextSlipNo();
 document.getElementById("hikiwatasi").value=iso(new Date());
 document.getElementById("jryDate").value=iso(new Date());
 drawWorkers(); drawProducts(); drawCart(); go(0);
