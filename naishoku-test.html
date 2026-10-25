@@ -903,12 +903,25 @@ function preparePdf(kind){
   c.building=buildPdf(kind).then(b=>{ if(c.key===key) c.blob=b; c.building=null; return b; });
 }
 
+/* ファイル名と月フォルダは、いまOneDriveで使われている形に合わせる。
+     現行の内職様 / 橋本さん / 2026.10 / 2026.10.28委託 (7197).pdf
+   委託は引渡日、受領は受領日を使う。分納のときは受領日が変わるので上書きされない。 */
+function pdfDateOf(kind){
+  const v = (kind==="itaku")
+      ? (document.getElementById("hikiwatasi").value || iso(new Date()))
+      : (S.viewDate || document.getElementById("jryDate").value || iso(new Date()));
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) { const t=new Date(); return {y:t.getFullYear(), m:t.getMonth()+1, d:t.getDate()}; }
+  return { y:Number(m[1]), m:Number(m[2]), d:Number(m[3]) };
+}
+function pdfMonthFolder(kind){
+  const t=pdfDateOf(kind);
+  return t.y+"."+t.m;            // 2026.10（0埋めしない。既存フォルダがこの形）
+}
 function pdfName(kind){
   const no=document.getElementById("slipNo").value||NEXT_NO;
-  if(kind==="itaku") return "委託伝票_"+no+".pdf";
-  // 受取書は分納で何枚も出る。日付を入れないと OneDrive で上書きされる
-  const d=(S.viewDate||document.getElementById("jryDate").value||iso(new Date())).replace(/-/g,"");
-  return "受領書_"+no+"_"+d+".pdf";
+  const t=pdfDateOf(kind);
+  return t.y+"."+t.m+"."+t.d+(kind==="itaku"?"委託":"受領")+" ("+no+").pdf";
 }
 
 async function shareSheet(kind){
@@ -924,9 +937,10 @@ async function shareSheet(kind){
   if(blob){
     const file=new File([blob],pdfName(kind),{type:"application/pdf"});
     // OneDrive への保存は待たずに走らせる。await すると iOS が共有シートを開かなくなる。
-    const up = odUpload(blob,pdfName(kind)).catch(e=>({err:e.message}));
+    const up = odUpload(blob,pdfName(kind),pdfMonthFolder(kind)).catch(e=>({err:e.message}));
     up.then(r=>{ if(r.ok) toast("OneDriveに保存しました：\n"+r.ok);
-                 else if(r.err) toast("OneDriveへの保存に失敗：\n"+r.err); });
+                 else if(r.err)  toast("OneDriveへ保存できませんでした：\n"+r.err);
+                 else if(r.skip) toast("OneDriveには保存していません：\n"+r.skip); });
     if(navigator.canShare && navigator.canShare({files:[file]})){
       try{ await navigator.share({files:[file],title:label,text}); return; }
       catch(e){ if(e.name==="AbortError") return; }
@@ -1159,25 +1173,41 @@ function drawSettings(){
 }
 
 /* ---------- アップロード ---------- */
-async function odUpload(blob,filename){
-  if(!OD.enabled) return {skip:"保存は無効です"};
-  if(!OD.folder)  return {err:"保存先フォルダが未設定です"};
-  if(!S.worker)   return {err:"内職者が未選択です"};
-  const sub=odFolderNameFor(S.worker);
-  const {driveId,itemId}=OD.folder;
-  const tok=await odToken(); if(!tok) return {err:"サインインしていません"};
-  const put=p=>fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}:/${p}:/content`,
-    {method:"PUT",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/pdf"},body:blob});
-  const path=encodeURIComponent(sub)+"/"+encodeURIComponent(filename);
-  let r=await put(path);
-  if(r.status===404){                     // フォルダが無ければ作ってから再試行
-    await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/children`,
-      {method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
-       body:JSON.stringify({name:sub,folder:{},"@microsoft.graph.conflictBehavior":"replace"})}).catch(()=>{});
-    r=await put(path);
+/* フォルダが無ければ作る。あればそれを使う。 */
+async function odEnsureFolder(tok,driveId,parentId,name){
+  const r=await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentId}/children`,
+    {method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
+     body:JSON.stringify({name:name,folder:{},"@microsoft.graph.conflictBehavior":"fail"})});
+  if(r.ok){ return (await r.json()).id; }
+  if(r.status===409){                       // すでにある
+    const g=await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentId}:/${encodeURIComponent(name)}`,
+      {headers:{Authorization:"Bearer "+tok}});
+    if(g.ok) return (await g.json()).id;
   }
+  return null;
+}
+
+async function odUpload(blob,filename,monthFolder){
+  if(!OD.enabled) return {skip:"「OneDriveにも保存する」がオフです（⑤ 保存先）"};
+  if(!OD.folder)  return {err:"保存先の親フォルダが未設定です（⑤ 保存先）"};
+  if(!S.worker)   return {err:"内職者が未選択です"};
+  const tok=await odToken(); if(!tok) return {err:"Microsoftアカウントにサインインしていません（⑤ 保存先）"};
+  const {driveId}=OD.folder;
+  const sub=odFolderNameFor(S.worker);
+
+  // 内職者フォルダ → 月フォルダ の順に用意する
+  let pid=OD.folder.itemId;
+  for(const name of [sub, monthFolder]){
+    if(!name) continue;
+    const id=await odEnsureFolder(tok,driveId,pid,name);
+    if(!id) return {err:"フォルダ「"+name+"」を用意できませんでした"};
+    pid=id;
+  }
+
+  const r=await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${pid}:/${encodeURIComponent(filename)}:/content`,
+    {method:"PUT",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/pdf"},body:blob});
   if(!r.ok) return {err:"保存に失敗しました（"+r.status+"）"};
-  return {ok:OD.folder.path+" / "+sub+" / "+filename};
+  return {ok:OD.folder.path+" / "+sub+" / "+(monthFolder||"")+" / "+filename};
 }
 
 /* =====================================================================
@@ -1290,7 +1320,7 @@ async function saveOnly(kind){
   let blob=c.blob || (c.building? await c.building : null);
   if(!blob){ preparePdf(kind); blob=await c.building; }
   if(!blob){ toast("PDFを作れませんでした。\n理由: "+(PDF_ERR||"不明")); return; }
-  const r=await odUpload(blob,pdfName(kind)).catch(e=>({err:e.message}));
+  const r=await odUpload(blob,pdfName(kind),pdfMonthFolder(kind)).catch(e=>({err:e.message}));
   if(r.ok) toast("OneDriveに保存しました：\n"+r.ok);
   else if(r.skip) toast("「⑤ 保存先」で『LINE送信と同時にOneDriveへ保存する』をオンにしてください。");
   else toast("OneDriveへの保存に失敗：\n"+(r.err||"不明"));
