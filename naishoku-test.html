@@ -322,7 +322,9 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
     <strong>この内職者の保存先フォルダ名</strong>
     <div class="note" id="odWho" style="margin:2px 0 8px">内職者が未選択です</div>
     <input type="text" id="odFolderName" placeholder="例：〇〇様" onchange="odSaveMap()">
-    <p class="note">名簿の氏名とフォルダ名が違う場合は、ここで直すと次回から記憶します。</p>
+    <p class="note">名簿の氏名とフォルダ名が違う場合は、ここで直すと次回から記憶します。<br>
+       <b>社内の方など、別の大きいフォルダに入れたいときは「社内内職/森岡さん」のように / で書きます。</b>
+       このときは、保存先の親フォルダを「6.内職依頼伝票」にしてください。</p>
   </div>
 
   <div class="card" style="padding:14px;margin-top:12px">
@@ -1187,18 +1189,36 @@ async function odEnsureFolder(tok,driveId,parentId,name){
   return null;
 }
 
+/* 保存先フォルダ名は「社内内職/森岡さん」のように / で階層を書ける。
+   親フォルダに 6.内職依頼伝票 を選んでおけば、現行の内職様／社内内職／辞職された内職様 に振り分けられる。
+   「橋本さん」のように階層を書かない場合は、現行の内職様 の下とみなす。
+   親フォルダに 現行の内職様 を選んだままでも、今までどおりの人はそのまま動く。 */
+const OD_TOP=["現行の内職様","社内内職","辞職された内職様","お支払い明細"];
+
+function odPathSegments(name,parentName){
+  const segs=String(name||"").split("/").map(x=>x.trim()).filter(Boolean);
+  if(!segs.length) return {err:"この内職者の保存先フォルダ名が未設定です（⑤ 保存先）"};
+  if(segs.length>1 && segs[0]===parentName) segs.shift();      // 親と重なっていたら外す
+  const topFirst=OD_TOP.includes(segs[0]), parentIsTop=OD_TOP.includes(parentName);
+  if(topFirst && parentIsTop)
+    return {err:"保存先の親フォルダを「6.内職依頼伝票」にしてください（⑤ 保存先）"};
+  if(!topFirst && !parentIsTop) segs.unshift("現行の内職様");
+  return {segs};
+}
+
 async function odUpload(blob,filename,monthFolder){
   if(!OD.enabled) return {skip:"「OneDriveにも保存する」がオフです（⑤ 保存先）"};
   if(!OD.folder)  return {err:"保存先の親フォルダが未設定です（⑤ 保存先）"};
   if(!S.worker)   return {err:"内職者が未選択です"};
   const tok=await odToken(); if(!tok) return {err:"Microsoftアカウントにサインインしていません（⑤ 保存先）"};
   const {driveId}=OD.folder;
-  const sub=odFolderNameFor(S.worker);
+  const ps=odPathSegments(odFolderNameFor(S.worker), OD.folder.name);
+  if(ps.err) return {err:ps.err};
+  const path=ps.segs.concat(monthFolder?[monthFolder]:[]);
 
-  // 内職者フォルダ → 月フォルダ の順に用意する
+  // 内職者フォルダ（階層可）→ 月フォルダ の順に用意する
   let pid=OD.folder.itemId;
-  for(const name of [sub, monthFolder]){
-    if(!name) continue;
+  for(const name of path){
     const id=await odEnsureFolder(tok,driveId,pid,name);
     if(!id) return {err:"フォルダ「"+name+"」を用意できませんでした"};
     pid=id;
@@ -1207,7 +1227,7 @@ async function odUpload(blob,filename,monthFolder){
   const r=await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${pid}:/${encodeURIComponent(filename)}:/content`,
     {method:"PUT",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/pdf"},body:blob});
   if(!r.ok) return {err:"保存に失敗しました（"+r.status+"）"};
-  return {ok:OD.folder.path+" / "+sub+" / "+(monthFolder||"")+" / "+filename};
+  return {ok:[OD.folder.path].concat(path,[filename]).join(" / ")};
 }
 
 /* =====================================================================
