@@ -1007,7 +1007,7 @@ addEventListener("orientationchange",fitSheets);
 const MS={
   clientId:"eef3e056-c0ec-4501-8008-b8a0a7ced644",
   tenantId:"54efa9ea-75a9-4b0d-ad14-2e6024872820",
-  scopes:["Files.ReadWrite.All"]  // 共有されたフォルダにも保存するため。保存先に選んだフォルダ以外は触らない
+  scopes:["Files.ReadWrite"]  // 管理者承認なしで通る範囲。共有アイテムもこの権限で開けるか様子を見る
 };
 const MSAL_URLS=["https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js",
                  "https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.28.1/msal-browser.min.js"];
