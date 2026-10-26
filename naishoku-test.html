@@ -352,6 +352,10 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
       <button class="btn quiet" style="flex:0 0 auto;min-width:0;padding:6px 12px" onclick="odPickerClose()">閉じる</button>
     </div>
     <div id="odCrumb" class="note" style="padding:8px 14px 0"></div>
+    <div style="padding:8px 14px 0">
+      <input id="odFind" type="search" placeholder="フォルダ名で絞り込む（例：NAS）"
+             oninput="odFilter(this.value)" style="width:100%">
+    </div>
     <div class="list" id="odList" style="flex:1 1 auto;max-height:none"></div>
     <div style="padding:12px 14px;border-top:1px solid var(--line)">
       <button class="btn" id="odUse" onclick="odUseCurrent()" disabled style="width:100%">このフォルダを保存先にする</button>
@@ -1003,7 +1007,7 @@ addEventListener("orientationchange",fitSheets);
 const MS={
   clientId:"eef3e056-c0ec-4501-8008-b8a0a7ced644",
   tenantId:"54efa9ea-75a9-4b0d-ad14-2e6024872820",
-  scopes:["Files.ReadWrite"]   // 本人のOneDriveだけ。他人のファイルや共有ライブラリには触れない
+  scopes:["Files.ReadWrite.All"]  // 共有されたフォルダにも保存するため。保存先に選んだフォルダ以外は触らない
 };
 const MSAL_URLS=["https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js",
                  "https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.28.1/msal-browser.min.js"];
@@ -1077,6 +1081,13 @@ async function odToken(){
     const r=await OD.pca.acquireTokenSilent({scopes:MS.scopes,account:OD.account});
     return r.accessToken;
   }catch(e){
+    // 権限が増えたときなど、黙って止まらずに同意画面へ送る
+    const code=String(e.errorCode||e.message||"").toLowerCase();
+    if(code.includes("interaction_required")||code.includes("consent_required")
+       ||code.includes("login_required")||code.includes("no_tokens_found")){
+      odStat("アクセス許可の確認が必要です。Microsoft の画面に移動します…");
+      try{ await OD.pca.acquireTokenRedirect({scopes:MS.scopes,account:OD.account}); return null; }catch(_){}
+    }
     odStat("アクセス権の確認が切れています。「⑤ 保存先」でもう一度サインインしてください。\n"+e.message);
     return null;
   }
@@ -1111,15 +1122,33 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const PICK={driveId:null,itemId:null,trail:[]};
+const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
 function odCrumb(){
   document.getElementById("odCrumb").textContent = PICK.trail.map(t=>t.name).join(" / ")||"（ルート）";
   document.getElementById("odUse").disabled = !PICK.itemId;
 }
+/* 共有されたフォルダは自分のOneDriveの直下には出ないので、
+   ルートに「共有アイテム」を足して、そちらからも降りられるようにする。 */
+function odQ(v){ return String(v).replace(/'/g, "\\'"); }
+function odRender(items,opts){
+  const box=document.getElementById("odList");
+  const q=(PICK.q||"").trim();
+  const hit = q ? items.filter(f=>f.name.indexOf(q)>=0) : items;
+  const head = (opts.up?'<button class="item" onclick="odUp()"><span class="n">← ひとつ上へ</span></button>':"")
+             + (opts.shared?'<button class="item" onclick="odListShared()"><span class="n">🔗 共有アイテム（自分と共有）</span></button>':"");
+  box.innerHTML = head + (hit.length ? hit.map(f=>
+      '<button class="item" onclick="'+f.go+'">'
+      +'<span class="n">📁 '+esc(f.name)+'</span>'
+      +'<span class="p">'+(f.count??"")+'</span></button>').join("")
+    : '<div class="empty">'+(q?"「"+esc(q)+"」に合うフォルダはありません":"この中にフォルダはありません")+'</div>');
+}
+function odFilter(v){ PICK.q=v; if(PICK.last) odRender(PICK.last.items,PICK.last.opts); }
+function odClearFind(){ PICK.q=""; const f=document.getElementById("odFind"); if(f) f.value=""; }
+
 async function odBrowseRoot(){
-  PICK.trail=[]; PICK.driveId=null; PICK.itemId=null;
+  PICK.trail=[]; PICK.driveId=null; PICK.itemId=null; odClearFind();
   const box=document.getElementById("odList"); box.innerHTML='<div class="empty">読み込んでいます…</div>';
   try{
     const d=await graph("/me/drive"); PICK.driveId=d.id;
@@ -1132,18 +1161,46 @@ async function odListChildren(){
   const box=document.getElementById("odList"); box.innerHTML='<div class="empty">読み込んでいます…</div>';
   odCrumb();
   try{
-    const r=await graph(`/drives/${PICK.driveId}/items/${PICK.itemId}/children?$top=200&$select=id,name,folder`);
-    const dirs=(r.value||[]).filter(x=>x.folder);
-    const up = PICK.trail.length>1 ? `<button class="item" onclick="odUp()"><span class="n">← ひとつ上へ</span></button>` : "";
-    box.innerHTML = up + (dirs.length ? dirs.map(f=>
-      `<button class="item" onclick="odDown('${f.id}','${esc(f.name).replace(/'/g,"\\'")}')">
-         <span class="n">📁 ${esc(f.name)}</span>
-         <span class="p">${f.folder.childCount??""}</span></button>`).join("")
-      : '<div class="empty">この中にフォルダはありません</div>');
+    const r=await graph('/drives/'+PICK.driveId+'/items/'+PICK.itemId+'/children?$top=400&$select=id,name,folder');
+    const items=(r.value||[]).filter(x=>x.folder).map(f=>({
+      name:f.name, count:f.folder.childCount,
+      go:"odDown('"+odQ(f.id)+"','"+odQ(esc(f.name))+"')"
+    }));
+    const opts={up:PICK.trail.length>1, shared:PICK.trail.length===1};
+    PICK.last={items,opts}; odRender(items,opts);
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
-async function odDown(id,name){ PICK.trail.push({name,itemId:PICK.itemId}); PICK.itemId=id; await odListChildren(); }
-async function odUp(){ const t=PICK.trail.pop(); if(t&&t.itemId) PICK.itemId=t.itemId; await odListChildren(); }
+/* 自分と共有されたフォルダ。実体は相手のドライブにあるので driveId ごと持ち替える。 */
+async function odListShared(){
+  PICK.trail=[{name:"OneDrive"},{name:"共有アイテム"}];
+  PICK.driveId=null; PICK.itemId=null; odClearFind();
+  const box=document.getElementById("odList"); box.innerHTML='<div class="empty">読み込んでいます…</div>';
+  odCrumb();
+  try{
+    const r=await graph("/me/drive/sharedWithMe");
+    const items=(r.value||[]).filter(x=>x.remoteItem&&x.remoteItem.folder).map(f=>{
+      const n=f.name||f.remoteItem.name;
+      return { name:n, count:f.remoteItem.folder.childCount,
+        go:"odDownRemote('"+odQ(f.remoteItem.parentReference.driveId)+"','"+odQ(f.remoteItem.id)+"','"+odQ(esc(n))+"')" };
+    });
+    const opts={up:true, shared:false};
+    PICK.last={items,opts}; odRender(items,opts);
+  }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
+}
+async function odDown(id,name){
+  PICK.trail.push({name,driveId:PICK.driveId,itemId:PICK.itemId});
+  PICK.itemId=id; odClearFind(); await odListChildren();
+}
+async function odDownRemote(drive,id,name){
+  PICK.trail.push({name,driveId:PICK.driveId,itemId:PICK.itemId});
+  PICK.driveId=drive; PICK.itemId=id; odClearFind(); await odListChildren();
+}
+async function odUp(){
+  const t=PICK.trail.pop(); odClearFind();
+  if(!t) return odBrowseRoot();
+  if(t.itemId){ if(t.driveId) PICK.driveId=t.driveId; PICK.itemId=t.itemId; await odListChildren(); }
+  else { await odListShared(); }
+}
 function odUseCurrent(){
   OD.folder={driveId:PICK.driveId,itemId:PICK.itemId,
              path:PICK.trail.map(t=>t.name).join(" / "),name:PICK.trail.at(-1)?.name||""};
