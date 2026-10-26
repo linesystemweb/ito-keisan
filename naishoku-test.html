@@ -927,7 +927,8 @@ function pdfMonthFolder(kind){
 function pdfName(kind){
   const no=document.getElementById("slipNo").value||NEXT_NO;
   const t=pdfDateOf(kind);
-  return t.y+"."+t.m+"."+t.d+(kind==="itaku"?"委託":"受領")+" ("+no+").pdf";
+  // 実ファイル名は「2026.10.13委託(7159).pdf」。括弧の前に空白は入らない
+  return t.y+"."+t.m+"."+t.d+(kind==="itaku"?"委託":"受領")+"("+no+").pdf";
 }
 
 async function shareSheet(kind){
