@@ -1162,18 +1162,22 @@ async function odListChildren(){
   const box=document.getElementById("odList"); box.innerHTML='<div class="empty">読み込んでいます…</div>';
   odCrumb();
   try{
-    const r=await graph('/drives/'+PICK.driveId+'/items/'+PICK.itemId+'/children?$top=400&$select=id,name,folder,remoteItem');
+    // $select は付けない。ショートカットの remoteItem.parentReference が欠けることがあるため
+    const r=await graph('/drives/'+PICK.driveId+'/items/'+PICK.itemId+'/children?$top=400');
     // ショートカット（他の人のフォルダへの参照）も開けるようにする
     const items=(r.value||[]).filter(x=>x.folder||(x.remoteItem&&x.remoteItem.folder)).map(f=>{
       const rm=f.remoteItem;
       if(rm&&rm.folder&&rm.parentReference&&rm.parentReference.driveId){
+        /* ショートカット（他の人のフォルダへの参照） */
         return { name:f.name||rm.name, count:rm.folder.childCount,
           go:"odDownRemote('"+odQ(rm.parentReference.driveId)+"','"+odQ(rm.id)+"','"+odQ(esc(f.name||rm.name))+"')" };
       }
       return { name:f.name, count:f.folder?f.folder.childCount:"",
         go:"odDown('"+odQ(f.id)+"','"+odQ(esc(f.name))+"')" };
     });
-    const opts={up:PICK.trail.length>1, shared:PICK.trail.length===1};
+    const all=(r.value||[]).length, sc=(r.value||[]).filter(x=>x.remoteItem).length;
+    const opts={up:PICK.trail.length>1, shared:PICK.trail.length===1,
+      empty:"この中にフォルダはありません（全"+all+"件／ショートカット"+sc+"件）"};
     PICK.last={items,opts}; odRender(items,opts);
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
