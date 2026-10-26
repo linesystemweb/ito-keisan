@@ -1142,7 +1142,7 @@ function odRender(items,opts){
       '<button class="item" onclick="'+f.go+'">'
       +'<span class="n">📁 '+esc(f.name)+'</span>'
       +'<span class="p">'+(f.count??"")+'</span></button>').join("")
-    : '<div class="empty">'+(q?"「"+esc(q)+"」に合うフォルダはありません":"この中にフォルダはありません")+'</div>');
+    : '<div class="empty">'+(q?"「"+esc(q)+"」に合うフォルダはありません":(opts.empty||"この中にフォルダはありません"))+'</div>');
 }
 function odFilter(v){ PICK.q=v; if(PICK.last) odRender(PICK.last.items,PICK.last.opts); }
 function odClearFind(){ PICK.q=""; const f=document.getElementById("odFind"); if(f) f.value=""; }
@@ -1161,11 +1161,17 @@ async function odListChildren(){
   const box=document.getElementById("odList"); box.innerHTML='<div class="empty">読み込んでいます…</div>';
   odCrumb();
   try{
-    const r=await graph('/drives/'+PICK.driveId+'/items/'+PICK.itemId+'/children?$top=400&$select=id,name,folder');
-    const items=(r.value||[]).filter(x=>x.folder).map(f=>({
-      name:f.name, count:f.folder.childCount,
-      go:"odDown('"+odQ(f.id)+"','"+odQ(esc(f.name))+"')"
-    }));
+    const r=await graph('/drives/'+PICK.driveId+'/items/'+PICK.itemId+'/children?$top=400&$select=id,name,folder,remoteItem');
+    // ショートカット（他の人のフォルダへの参照）も開けるようにする
+    const items=(r.value||[]).filter(x=>x.folder||(x.remoteItem&&x.remoteItem.folder)).map(f=>{
+      const rm=f.remoteItem;
+      if(rm&&rm.folder&&rm.parentReference&&rm.parentReference.driveId){
+        return { name:f.name||rm.name, count:rm.folder.childCount,
+          go:"odDownRemote('"+odQ(rm.parentReference.driveId)+"','"+odQ(rm.id)+"','"+odQ(esc(f.name||rm.name))+"')" };
+      }
+      return { name:f.name, count:f.folder?f.folder.childCount:"",
+        go:"odDown('"+odQ(f.id)+"','"+odQ(esc(f.name))+"')" };
+    });
     const opts={up:PICK.trail.length>1, shared:PICK.trail.length===1};
     PICK.last={items,opts}; odRender(items,opts);
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
@@ -1183,7 +1189,10 @@ async function odListShared(){
       return { name:n, count:f.remoteItem.folder.childCount,
         go:"odDownRemote('"+odQ(f.remoteItem.parentReference.driveId)+"','"+odQ(f.remoteItem.id)+"','"+odQ(esc(n))+"')" };
     });
-    const opts={up:true, shared:false};
+    const opts={up:true, shared:false,
+      empty:"共有されたフォルダが見つかりません。OneDriveで目的のフォルダを開き、"
+           +"「自分のファイルへのショートカットを追加」を一度押してから、"
+           +"この画面の「← ひとつ上へ」に戻って探してください。"};
     PICK.last={items,opts}; odRender(items,opts);
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
