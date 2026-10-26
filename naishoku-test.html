@@ -1123,6 +1123,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
+const APP_VER="2026-10-26 14:25";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1137,7 +1138,9 @@ function odRender(items,opts){
   const box=document.getElementById("odList");
   const q=(PICK.q||"").trim();
   const hit = q ? items.filter(f=>f.name.indexOf(q)>=0) : items;
-  const head = (opts.up?'<button class="item" onclick="odUp()"><span class="n">← ひとつ上へ</span></button>':"")
+  const head = '<div class="note" style="padding:4px 14px;font-size:12px">版 '+APP_VER
+             + (opts.stat?(' ／ '+opts.stat):'')+'</div>'
+             + (opts.up?'<button class="item" onclick="odUp()"><span class="n">← ひとつ上へ</span></button>':"")
              + (opts.shared?'<button class="item" onclick="odListShared()"><span class="n">🔗 共有アイテム（自分と共有）</span></button>':"");
   box.innerHTML = head + (hit.length ? hit.map(f=>
       '<button class="item" onclick="'+f.go+'">'
@@ -1175,9 +1178,11 @@ async function odListChildren(){
       return { name:f.name, count:f.folder?f.folder.childCount:"",
         go:"odDown('"+odQ(f.id)+"','"+odQ(esc(f.name))+"')" };
     });
-    const all=(r.value||[]).length, sc=(r.value||[]).filter(x=>x.remoteItem).length;
+    const v=(r.value||[]);
+    const all=v.length, sc=v.filter(x=>x.remoteItem).length, scf=v.filter(x=>x.remoteItem&&x.remoteItem.folder).length;
     const opts={up:PICK.trail.length>1, shared:PICK.trail.length===1,
-      empty:"この中にフォルダはありません（全"+all+"件／ショートカット"+sc+"件）"};
+      stat:"全"+all+" 表示"+items.length+" 参照"+sc+"("+scf+")",
+      empty:"この中にフォルダはありません"};
     PICK.last={items,opts}; odRender(items,opts);
   }catch(e){ box.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
 }
@@ -1212,8 +1217,11 @@ async function odDownRemote(drive,id,name){
 async function odUp(){
   const t=PICK.trail.pop(); odClearFind();
   if(!t) return odBrowseRoot();
-  if(t.itemId){ if(t.driveId) PICK.driveId=t.driveId; PICK.itemId=t.itemId; await odListChildren(); }
-  else { await odListShared(); }
+  if(t.itemId){ if(t.driveId) PICK.driveId=t.driveId; PICK.itemId=t.itemId; return odListChildren(); }
+  // 行き先が記録されていない＝共有アイテム絡み。
+  // 残りが OneDrive だけなら一番上へ、そうでなければ共有アイテムの一覧へ。
+  if(PICK.trail.length<=1) return odBrowseRoot();
+  return odListShared();
 }
 function odUseCurrent(){
   OD.folder={driveId:PICK.driveId,itemId:PICK.itemId,
