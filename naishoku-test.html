@@ -322,6 +322,11 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
     <strong>この内職者の保存先フォルダ名</strong>
     <div class="note" id="odWho" style="margin:2px 0 8px">内職者が未選択です</div>
     <input type="text" id="odFolderName" placeholder="例：〇〇様" onchange="odSaveMap()">
+    <p class="note" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>アプリの版：<b id="verLabel"></b></span>
+      <button class="btn quiet" style="flex:0 0 auto;min-width:0;padding:6px 12px"
+              onclick="appHardReload()">アプリを最新にする</button>
+    </p>
     <p class="note">名簿の氏名とフォルダ名が違う場合は、ここで直すと次回から記憶します。<br>
        <b>社内の方など、別の大きいフォルダに入れたいときは「社内内職/森岡さん」のように / で書きます。</b>
        このときは、保存先の親フォルダを「6.内職依頼伝票」にしてください。</p>
@@ -1123,7 +1128,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-26 14:25";
+const APP_VER="2026-10-26 14:55";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1243,6 +1248,7 @@ function odFolderNameFor(w){
 }
 function drawSettings(){
   drawExport(); drawSyncBar();
+  const vl=document.getElementById("verLabel"); if(vl) vl.textContent=APP_VER;
   const u=document.getElementById("srvUrl"); if(u && !u.value) u.value=SRV.url;
   document.getElementById("odUser").textContent = OD.account? OD.account.username : "未サインイン";
   document.getElementById("odBtn").textContent  = OD.account? "サインアウト" : "サインイン";
@@ -1674,8 +1680,25 @@ if(SRV.url) syncNow(true)
   });
 
 // 圏外でもページを開けるようにする（同じ場所に naishoku-sw.js が必要）
+// 新しい版を上げたら、次に開いたときに必ず入れ替わるようにする
 if("serviceWorker" in navigator && location.protocol==="https:"){
-  navigator.serviceWorker.register("naishoku-sw.js").catch(()=>{});
+  navigator.serviceWorker.register("naishoku-sw.js").then(reg=>{
+    try{ reg.update(); }catch(e){}
+    let reloaded=false;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      if(reloaded) return; reloaded=true; location.reload();
+    });
+  }).catch(()=>{});
+}
+/* 困ったとき用：アプリが古いままのときに、キャッシュを捨てて取り直す */
+async function appHardReload(){
+  try{
+    const regs=await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r=>r.unregister()));
+    const keys=await caches.keys();
+    await Promise.all(keys.map(k=>caches.delete(k)));
+  }catch(e){}
+  location.replace(location.pathname+"?r="+Date.now());
 }
 
 odInit().then(ok=>{ try{drawSettings();}catch(e){}
