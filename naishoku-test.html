@@ -306,6 +306,7 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
     <strong>保存先の親フォルダ</strong>
     <div class="note" id="odFolder" style="margin:2px 0 10px">未設定</div>
     <div class="rowbtns" style="margin:0">
+      <button class="btn" id="odDefBtn" onclick="odUseDefault()">会社の保存先にする</button>
       <button class="btn ghost" onclick="odPickerOpen()">フォルダを選ぶ</button>
       <button class="btn quiet" onclick="odClearFolder()">解除</button>
     </div>
@@ -1128,7 +1129,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-26 14:55";
+const APP_VER="2026-10-26 15:45";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1234,6 +1235,29 @@ function odUseCurrent(){
   ST.set("odFolder",OD.folder); odPickerClose(); drawSettings();
 }
 function odClearFolder(){ OD.folder=null; ST.set("odFolder",null); drawSettings(); }
+
+/* 会社の保存先を、フォルダをたどらずに一発で設定する。
+   OneDriveのショートカットはGraphの一覧に出てこないため、場所そのものを控えてある。
+   中身は内職者のフォルダなので、個人情報ではない。 */
+const OD_DEFAULT={
+  driveId:"b!Py-KM_37cUq03sUjKYeZ-QHEFKje5JdMriKV9aWjrF9tH2NX6416TbpoW4QoHKb-",
+  itemId :"01ZA4OLIYRVMQSEACYIVAKENH7TDMEGF6M",
+  path   :"NAS同期_輸出_生産依頼 / 6.内職依頼伝票",
+  name   :"6.内職依頼伝票"
+};
+async function odUseDefault(){
+  const btn=document.getElementById("odDefBtn"); if(btn) btn.disabled=true;
+  try{
+    // 本当に開けるか確かめてから設定する
+    const r=await graph("/drives/"+OD_DEFAULT.driveId+"/items/"+OD_DEFAULT.itemId+"/children?$top=5");
+    const names=(r.value||[]).filter(x=>x.folder).map(x=>x.name).join("、");
+    OD.folder={...OD_DEFAULT}; ST.set("odFolder",OD.folder); drawSettings();
+    toast("保存先を設定しました：\n"+OD_DEFAULT.path+(names?("\n中身："+names):""));
+  }catch(e){
+    toast("会社の保存先を開けませんでした。\n"+e.message
+      +"\n\nこのアカウントに「6.内職依頼伝票」が共有されていない可能性があります。");
+  }finally{ if(btn) btn.disabled=false; }
+}
 function odSave(){ OD.enabled=document.getElementById("odEnable").checked; ST.set("odEnable",OD.enabled); }
 function odSaveMap(){
   if(!S.worker) return;
