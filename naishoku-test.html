@@ -303,6 +303,14 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
   </div>
 
   <div class="card" style="padding:14px;margin-top:12px">
+    <strong>この端末の担当者</strong>
+    <div class="note" id="staffWarn" style="margin:2px 0 8px"></div>
+    <input type="text" id="staffName" placeholder="例：長坂" onchange="saveStaff()" oninput="saveStaff()">
+    <p class="note">最初に1回だけ入れてください。ここに入れた名前が、この端末で切った伝票すべてに記録されます。
+      あとから「誰が作った伝票か」を追えるようにするためのものです。</p>
+  </div>
+
+  <div class="card" style="padding:14px;margin-top:12px">
     <strong>保存先の親フォルダ</strong>
     <div class="note" id="odFolder" style="margin:2px 0 10px">未設定</div>
     <div class="rowbtns" style="margin:0">
@@ -1137,7 +1145,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-27 09:30";
+const APP_VER="2026-10-27 11:20";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1244,6 +1252,20 @@ function odUseCurrent(){
 }
 function odClearFolder(){ OD.folder=null; ST.set("odFolder",null); drawSettings(); }
 
+/* この端末の担当者。伝票に「誰が切ったか」を残すために使う。
+   共用アカウントの端末でも、端末ごとに名前を入れておけば区別できる。 */
+function staffName(){ return ST.get("staff","") || ""; }
+function saveStaff(){
+  const v=(document.getElementById("staffName").value||"").trim();
+  ST.set("staff",v); drawStaffWarn();
+}
+function drawStaffWarn(){
+  const w=document.getElementById("staffWarn"); if(!w) return;
+  const v=staffName();
+  w.textContent = v ? "" : "未設定です。伝票に担当者が残りません。";
+  w.style.color = v ? "" : "#A63C38";
+}
+
 /* 会社の保存先を、フォルダをたどらずに一発で設定する。
    OneDriveのショートカットはGraphの一覧に出てこないため、場所そのものを控えてある。
    中身は内職者のフォルダなので、個人情報ではない。 */
@@ -1281,6 +1303,8 @@ function odFolderNameFor(w){
 function drawSettings(){
   drawExport(); drawSyncBar();
   const vl=document.getElementById("verLabel"); if(vl) vl.textContent=APP_VER;
+  const sn=document.getElementById("staffName"); if(sn && !sn.value) sn.value=staffName();
+  drawStaffWarn();
   const u=document.getElementById("srvUrl"); if(u && !u.value) u.value=SRV.url;
   document.getElementById("odUser").textContent = OD.account? OD.account.username : "未サインイン";
   document.getElementById("odBtn").textContent  = OD.account? "サインアウト" : "サインイン";
@@ -1369,6 +1393,7 @@ function currentSlip(){
     closed: {...S.closed},
     deliveries: (S.deliveries||[]).map(d=>({...d})),   // 納入1回ぶんずつの記録
     exported: S.exported||"",
+    staff: staffName(),                 // この端末の担当者（誰が切った伝票か）
     updated: new Date().toISOString()
   };
 }
