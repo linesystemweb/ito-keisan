@@ -307,10 +307,18 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
     <div class="note" id="odFolder" style="margin:2px 0 10px">未設定</div>
     <div class="rowbtns" style="margin:0">
       <button class="btn" id="odDefBtn" onclick="odUseDefault()">会社の保存先にする</button>
-      <button class="btn ghost" onclick="odPickerOpen()">フォルダを選ぶ</button>
-      <button class="btn quiet" onclick="odClearFolder()">解除</button>
     </div>
-    <p class="note">「現行の内職様」のように、内職者ごとのフォルダが並んでいる<strong>親フォルダ</strong>を選んでください。この下に内職者名のフォルダを作って保存します。</p>
+    <p class="note">このボタンを押すだけです。<strong>NAS同期_輸出_生産依頼 / 6.内職依頼伝票</strong> が設定され、
+      その下の 現行の内職様・社内内職 などへ、内職者ごとに自動で振り分けて保存します。</p>
+    <details style="margin-top:6px">
+      <summary class="note" style="cursor:pointer">別の場所にしたいとき（通常は不要）</summary>
+      <div class="rowbtns" style="margin:8px 0 0">
+        <button class="btn ghost" onclick="odPickerOpen()">フォルダを選ぶ</button>
+        <button class="btn quiet" onclick="odClearFolder()">解除</button>
+      </div>
+      <p class="note" style="margin-top:6px">保存先が変わったときだけ使います。内職者ごとのフォルダが並んでいる、
+        ひとつ上の<strong>親フォルダ</strong>を選んでください。</p>
+    </details>
   </div>
 
   <label class="card" style="padding:14px;margin-top:12px;display:flex;gap:10px;align-items:flex-start;cursor:pointer">
@@ -1129,7 +1137,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-26 15:45";
+const APP_VER="2026-10-27 09:30";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
