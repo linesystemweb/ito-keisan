@@ -561,13 +561,20 @@ function pickWorker(code){
 }
 
 /* ---------- ② 品目 ---------- */
+let LASTQ="", PRETRY=false;
 function drawProducts(){
   const raw=document.getElementById("pq").value.trim();
+  if(raw!==LASTQ){ LASTQ=raw; PRETRY=false; }
   const box=document.getElementById("plist");
   if(!raw){ box.innerHTML=`<div class="empty">商品コード・商品名・JANのどれかで検索してください<br>（マスタ ${n(PROD.length)} 件）</div>`; return; }
   const q=skey(raw);
   const hit=[];
   for(let i=0;i<PIDX.length && hit.length<60;i++) if(PIDX[i].includes(q)) hit.push(i);
+  // 見つからないときは、黙って最新の商品マスタを取りに行って引き直す
+  if(!hit.length && SRV.url && !PRETRY){
+    PRETRY = true;
+    refreshProducts(true).then(n=>{ if(n) drawProducts(); });
+  }
   box.innerHTML = hit.length? hit.map(i=>{
     const p=PROD[i];
     if(codeTooLong(p[0])){
@@ -583,7 +590,9 @@ function drawProducts(){
       <span class="c">${esc(p[0])}</span>
       <span class="n">${esc(p[1]||"（商品名が未登録）")}</span>
       <span class="p">${p[2]==null?"単価なし":"¥"+p[2]}</span></button>`;
-  }).join("") : `<div class="empty">見つかりません。<br>マスタに無い作業の可能性があります。</div>`;
+  }).join("") : `<div class="empty">見つかりません。<br>
+      Access に登録したばかりなら、いま最新を取りに行っています。少し待ってもう一度お試しください。<br>
+      <span style="font-size:11.5px">（マスタ ${n(PROD.length)} 件）</span></div>`;
 }
 function addItem(i){
   const p=PROD[i];
@@ -1156,7 +1165,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-28 12:20";
+const APP_VER="2026-10-28 12:45";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
