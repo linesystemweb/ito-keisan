@@ -303,6 +303,16 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
   </div>
 
   <div class="card" style="padding:14px;margin-top:12px">
+    <strong>商品マスタ</strong>
+    <div class="note" id="prodInfo" style="margin:2px 0 10px"></div>
+    <div class="rowbtns" style="margin:0">
+      <button class="btn ghost" id="prodBtn" onclick="refreshProducts()">商品を最新にする</button>
+    </div>
+    <p class="note">Access に新製品を登録したあと、PCで <b>商品マスタ送信</b> を実行してから、
+      ここを押すとその場で使えるようになります。ふだんは同期のときに自動で最新になります。</p>
+  </div>
+
+  <div class="card" style="padding:14px;margin-top:12px">
     <strong>この端末の担当者</strong>
     <div class="note" id="staffWarn" style="margin:2px 0 8px"></div>
     <input type="text" id="staffName" placeholder="例：長坂" onchange="saveStaff()" oninput="saveStaff()">
@@ -431,7 +441,8 @@ const normCode=v=>String(v??"").trim()
 /* 検索キー：全角・半角、空白の有無、㎜/mm の違いを吸収する。
    マスタ側を正規化した以上、入力側も同じ土俵に乗せないと引けなくなる。 */
 const skey=s=>String(s??"").normalize("NFKC").replace(/\s+/g,"").toUpperCase();
-const PIDX=PRODUCTS.map(p=>skey(p[0])+""+skey(p[1])+""+(p[3]||""));
+let PIDX=[];
+function rebuildProductIndex(){ PIDX=PROD.map(p=>skey(p[0])+"\u0001"+skey(p[1])+"\u0001"+(p[3]||"")); }
 let WIDX=WORKERS.map(w=>skey(w[0])+"\u0001"+skey(w[1]));
 function rebuildWorkerIndex(){ WIDX=WORKERS.map(w=>skey(w[0])+"\u0001"+skey(w[1])); }
 
@@ -553,12 +564,12 @@ function pickWorker(code){
 function drawProducts(){
   const raw=document.getElementById("pq").value.trim();
   const box=document.getElementById("plist");
-  if(!raw){ box.innerHTML=`<div class="empty">商品コード・商品名・JANのどれかで検索してください<br>（マスタ ${n(PRODUCTS.length)} 件）</div>`; return; }
+  if(!raw){ box.innerHTML=`<div class="empty">商品コード・商品名・JANのどれかで検索してください<br>（マスタ ${n(PROD.length)} 件）</div>`; return; }
   const q=skey(raw);
   const hit=[];
   for(let i=0;i<PIDX.length && hit.length<60;i++) if(PIDX[i].includes(q)) hit.push(i);
   box.innerHTML = hit.length? hit.map(i=>{
-    const p=PRODUCTS[i];
+    const p=PROD[i];
     if(codeTooLong(p[0])){
       return `<button class="item" disabled style="opacity:.55;cursor:not-allowed"
           title="商品コードが${CODE_MAX}文字を超えているため伝票に使えません">
@@ -575,7 +586,7 @@ function drawProducts(){
   }).join("") : `<div class="empty">見つかりません。<br>マスタに無い作業の可能性があります。</div>`;
 }
 function addItem(i){
-  const p=PRODUCTS[i];
+  const p=PROD[i];
   if(codeTooLong(p[0])){
     toast(`この商品コードは ${p[0].length} 文字あります。\nAccess の伝票明細は ${CODE_MAX} 文字までなので、`
       +`このまま伝票に載せると取り込めません。\nAccess の 加工委託商品 でコードを短くしてください。`);
@@ -1145,7 +1156,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-28 11:05";
+const APP_VER="2026-10-28 12:20";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1255,6 +1266,43 @@ function odClearFolder(){ OD.folder=null; ST.set("odFolder",null); drawSettings(
 /* この端末の担当者。伝票に「誰が切ったか」を残すために使う。
    共用アカウントの端末でも、端末ごとに名前を入れておけば区別できる。 */
 function staffName(){ return ST.get("staff","") || ""; }
+
+/* ---------- 商品マスタ ----------
+   ファイルに焼き付けてある PRODUCTS は、つながらないときの予備。
+   ふだんは保管サーバから取った最新を使う（Accessに登録したその場で使えるように）。 */
+let PROD = PRODUCTS;
+function applyProducts(list, stamp){
+  if(!list || !list.length) return 0;
+  PROD = list.map(p=>[String(p[0]), String(p[1]||""), Number(p[2]||0), p[3]||null]);
+  ST.set("prodCache",{at:stamp||"", list:PROD});
+  rebuildProductIndex();
+  drawProdInfo();
+  return PROD.length;
+}
+function loadProdCache(){
+  const c=ST.get("prodCache",null);
+  if(c && c.list && c.list.length){ PROD=c.list; }
+  rebuildProductIndex();
+}
+function prodStamp(){ const c=ST.get("prodCache",null); return (c&&c.at)||""; }
+function drawProdInfo(){
+  const e=document.getElementById("prodInfo"); if(!e) return;
+  const st=prodStamp();
+  e.textContent = PROD.length+"件"+(st?("（Access側の更新 "+st+"）"):"（このアプリに入っている分）");
+}
+async function refreshProducts(quiet){
+  const b=document.getElementById("prodBtn"); if(b) b.disabled=true;
+  try{
+    const r=await srvPost("products");
+    const n=applyProducts(r.products, r.updated);
+    if(!quiet) toast("商品を最新にしました：\n"+n+"件"+(r.updated?("（Access側の更新 "+r.updated+"）"):""));
+    return n;
+  }catch(e){
+    if(!quiet) toast("商品を最新にできませんでした：\n"+e.message
+      +"\n\nこのアプリに入っている分（"+PROD.length+"件）で続けられます。");
+    return 0;
+  }finally{ if(b) b.disabled=false; }
+}
 function saveStaff(){
   const v=(document.getElementById("staffName").value||"").trim();
   ST.set("staff",v); drawStaffWarn();
@@ -1304,7 +1352,7 @@ function drawSettings(){
   drawExport(); drawSyncBar();
   const vl=document.getElementById("verLabel"); if(vl) vl.textContent=APP_VER;
   const sn=document.getElementById("staffName"); if(sn && !sn.value) sn.value=staffName();
-  drawStaffWarn();
+  drawStaffWarn(); drawProdInfo();
   const u=document.getElementById("srvUrl"); if(u && !u.value) u.value=SRV.url;
   document.getElementById("odUser").textContent = OD.account? OD.account.username : "未サインイン";
   document.getElementById("odBtn").textContent  = OD.account? "サインアウト" : "サインイン";
@@ -1673,6 +1721,7 @@ async function syncNow(quiet){
   try{
     for(const sl of pendingSlips()) await srvPost("save",{slip:sl});   // 順番待ちを先に送る
     await fetchWorkers();
+    await refreshProducts(true);          // 商品マスタもここで最新にする
     const r=await srvPost("list",{recent:200});   // 伝票が増えても重くならないよう直近だけ
     const server=r.slips||[];
     const still=loadSlips().filter(s=>s.pending && !server.some(x=>x.no===s.no));
@@ -1757,6 +1806,10 @@ async function appHardReload(){
   }catch(e){}
   location.replace(location.pathname+"?r="+Date.now());
 }
+
+loadProdCache();                      // 前回取った商品マスタを先に使う
+rebuildProductIndex();
+if(SRV.url) refreshProducts(true);    // つながれば裏で最新にする
 
 odInit().then(ok=>{ try{drawSettings();}catch(e){}
   if(ok&&OD.account&&location.hash.length>2) go(4);   // サインインから戻ったら保存先画面へ
