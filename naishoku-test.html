@@ -1165,7 +1165,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-28 12:45";
+const APP_VER="2026-10-28 14:10";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1299,12 +1299,24 @@ function drawProdInfo(){
   const st=prodStamp();
   e.textContent = PROD.length+"件"+(st?("（Access側の更新 "+st+"）"):"（このアプリに入っている分）");
 }
+/* 保管サーバから返ってくる更新日時は、Sheets側で日付と解釈されると
+   「Wed Oct 28 2026 11:29:00 GMT+0900」のような形で届く。人が読む形に直す。 */
+function fmtUpd(v){
+  if(!v) return "";
+  const s=String(v);
+  if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) return s.slice(0,16);
+  const d=new Date(s);
+  if(isNaN(d.getTime())) return s;
+  const z=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());
+}
 async function refreshProducts(quiet){
   const b=document.getElementById("prodBtn"); if(b) b.disabled=true;
   try{
     const r=await srvPost("products");
-    const n=applyProducts(r.products, r.updated);
-    if(!quiet) toast("商品を最新にしました：\n"+n+"件"+(r.updated?("（Access側の更新 "+r.updated+"）"):""));
+    const u=fmtUpd(r.updated);
+    const n=applyProducts(r.products, u);
+    if(!quiet) toast("商品を最新にしました：\n"+n+"件"+(u?("（Access側の更新 "+u+"）"):""));
     return n;
   }catch(e){
     if(!quiet) toast("商品を最新にできませんでした：\n"+e.message
