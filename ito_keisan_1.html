@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="糸計算">
+<meta name="theme-color" content="#3d5af1">
+<title>糸計算</title>
+<style>
+  :root{
+    --bg:#f3f5fb; --card:#ffffff; --ink:#1b2033; --muted:#646b82; --line:#d9deea;
+    --accent:#3d5af1; --accent-light:#e8ecfe; --ok-bg:#e7f6ee; --ok-ink:#11683d; --warn:#b4540a;
+    --radius:12px; --radius-sm:8px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#11131b; --card:#1b1e2a; --ink:#e9ebf3; --muted:#9aa1b8; --line:#2f3446;
+      --accent:#8a9cff; --accent-light:#252c4d; --ok-bg:#163326; --ok-ink:#8fe0b4; --warn:#f0a35c; color-scheme:dark }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  [hidden]{display:none!important}
+  body{background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    padding:max(14px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+  .wrap{max-width:640px;margin:0 auto}
+  h1{font-size:18px;margin:4px 0 14px;display:flex;align-items:baseline;gap:8px}
+  h1 small{font-size:11px;color:var(--muted);font-weight:400}
+  .tabs{display:flex;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:14px}
+  .tab{flex:1;padding:12px 6px;border:0;background:transparent;color:var(--muted);font:600 14px/1.2 inherit;cursor:pointer}
+  .tab.on{background:var(--accent);color:#fff}
+  .sec{display:none}.sec.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+  .f{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .f label{font-size:12px;color:var(--muted)}
+  select,input{width:100%;height:42px;padding:0 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);color:var(--ink);font-size:16px}
+  select:focus,input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .badge{font-size:13px;color:var(--accent);background:var(--accent-light);padding:5px 10px;border-radius:6px;margin-top:6px;font-weight:600}
+  .nl{font-size:12px;color:var(--accent);font-weight:600}
+  .btn{width:100%;height:46px;border:0;border-radius:var(--radius-sm);background:var(--accent);color:#fff;font:700 15px inherit;cursor:pointer;margin-top:4px}
+  .warn{color:var(--warn);font-size:13px;margin-top:8px}
+  .ans{background:var(--ok-bg);color:var(--ok-ink);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+  .ans .l{font-size:13px}
+  .ans .v{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+  .ans .s{font-size:13px;opacity:.85}
+  .mets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .m{background:var(--card);border-radius:var(--radius-sm);padding:10px;color:var(--ink)}
+  .m .ml{font-size:11px;color:var(--muted)}
+  .m .mv{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+  .item{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;position:relative}
+  .item .row{margin-bottom:8px}
+  .item .row:last-of-type{margin-bottom:0}
+  .rm{position:absolute;top:6px;right:6px;width:30px;height:30px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--muted);cursor:pointer;font-size:16px}
+  .add{width:100%;height:40px;border:1px dashed var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-size:14px;cursor:pointer;margin-bottom:10px}
+  .tbl{overflow-x:auto;margin-top:12px;background:var(--card);border-radius:var(--radius-sm)}
+  table{width:100%;border-collapse:collapse;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+  th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:11px;color:var(--muted);font-weight:600}
+  .note{font-size:11px;color:var(--muted);text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>糸計算 <small>ver.2（2026-10 復旧版）</small></h1>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" id="tab-kg" onclick="sw('kg')">重さ → 何個できる</button>
+    <button class="tab" id="tab-cnt" onclick="sw('cnt')">何個作りたい → 必要重量</button>
+  </div>
+
+  <!-- 重さ → 個数 -->
+  <section id="s-kg" class="sec on">
+    <div class="card">
+      <div class="row">
+        <div class="f"><label for="kg-type">種類</label>
+          <select id="kg-type" onchange="loadSizes('kg')">
+            <option value="">選択…</option><option>NL</option><option>FC</option><option>PET</option>
+          </select>
+        </div>
+        <div class="f"><label for="kg-size">号数</label>
+          <select id="kg-size"><option value="">先に種類を</option></select>
+        </div>
+      </div>
+      <div id="kg-dbadge" class="badge" hidden></div>
+      <div class="row" style="margin-top:12px">
+        <div class="f"><label for="kg-len">商品の長さ（m/個） <span class="nl" id="kg-nl"></span></label>
+          <input type="number" id="kg-len" inputmode="decimal" placeholder="例: 300" oninput="nlLabel('kg')">
+        </div>
+        <div class="f"><label for="kg-weight">手持ちの重さ（kg）</label>
+          <input type="number" id="kg-weight" inputmode="decimal" placeholder="例: 5" step="0.001">
+        </div>
+      </div>
+      <button class="btn" onclick="calcKg()">何個できるか計算する</button>
+      <div class="warn" id="kg-warn" hidden></div>
+    </div>
+    <div class="ans" id="kg-ans" hidden>
+      <div class="l">作れる個数</div>
+      <div class="v"><span id="kg-r-count">—</span> 個</div>
+      <div class="s" id="kg-r-sub"></div>
+      <div class="mets">
+        <div class="m"><div class="ml">使う長さ</div><div class="mv" id="kg-r-len">—</div><div class="ml">m</div></div>
+        <div class="m"><div class="ml">使う重さ</div><div class="mv" id="kg-r-used">—</div><div class="ml">kg</div></div>
+        <div class="m"><div class="ml">余り</div><div class="mv" id="kg-r-rem">—</div><div class="ml">g</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 個数 → 必要重量 -->
+  <section id="s-cnt" class="sec">
+    <div class="card">
+      <div id="items"></div>
+      <button class="add" onclick="addItem()">＋ 商品を追加</button>
+      <button class="btn" onclick="calcCnt()">必要な重さを計算する</button>
+      <div class="warn" id="cnt-warn" hidden></div>
+    </div>
+    <div class="ans" id="cnt-ans" hidden>
+      <div class="l">必要な総重量</div>
+      <div class="v"><span id="cnt-r-kg">—</span> kg</div>
+      <div class="s" id="cnt-r-sub"></div>
+      <div class="tbl"><table>
+        <thead><tr><th>商品</th><th>長さ×個数</th><th>合計m</th><th>重さ</th></tr></thead>
+        <tbody id="cnt-rows"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <p class="note">NLは商品の長さを自動で3%増しにして計算します。データ：糸計算表_2019（元データ）</p>
+</div>
+
+<script>
+// [号数, m/kg, 糸径mm, lb]
+const D={
+  NL:{list:[["0.1",409090,0.052,null],["0.15",272727,0.064,null],["0.2",204545,0.074,null],["0.25",163636,0.083,null],["0.3",136363,0.09,null],["0.35",116883,0.095,null],["0.4",102272,0.104,null],["0.5",81818,0.117,null],["0.6",68181,0.128,null],["0.8",51136,0.148,null],["1",40909,0.165,null],["1.2",34090,0.185,null],["1.5",27272,0.205,null],["1.75",23863,0.22,null],["2",20454,0.235,null],["2.5",16363,0.26,null],["3",13636,0.285,null],["3.5",11688,0.31,null],["4",10227,0.33,16],["5",8181,0.37,20],["6",6818,0.405,null],["7",5844,0.435,25],["8",5113,0.47,30],["10",4090,0.52,35],["12",3409,0.57,40],["14",2922,0.62,50],["16",2556,0.66,null],["20",2045,0.74,70],["22",1821,0.78,80],["24",1705,0.81,90],["26",1573,0.84,null],["28",1461,0.87,100],["30",1363,0.91,null],["35",1168,0.98,130],["40",1022,1.05,null],["50",818,1.17,null],["60",681,1.28,null],["70",584,1.39,null],["80",511,1.48,null],["90",454,1.57,null],["100",409,1.66,null],["110",371,1.74,null],["120",340,1.81,null],["130",314,1.88,null],["150",272,2.03,null],["180",227,2.21,null],["200",204,2.34,null],["250",163,2.61,null],["300",136,2.86,null]]},
+  FC:{list:[["0.2",110000,0.077,null],["0.25",95000,0.084,null],["0.3",82000,0.094,null],["0.35",71000,0.104,null],["0.4",60000,0.112,null],["0.5",48000,0.125,null],["0.6",38135,0.145,null],["0.8",27272,0.161,null],["1",21531,0.179,null],["1.2",17208,0.201,null],["1.5",14218,0.221,null],["1.75",12342,0.239,null],["2",10465,0.257,null],["2.5",9127,0.277,null],["3",7500,0.307,null],["3.5",6691,0.326,null],["4",5882,0.345,null],["5",4719,0.385,16],["6",3947,0.421,20],["7",3454,0.448,25],["8",2975,0.486,30],["10",2318,0.55,35],["12",2024,0.588,40],["14",1764,0.629,50],["16",1545,0.673,60],["18",1373,0.715,null],["20",1228,0.756,70],["22",1048,0.828,80],["24",961,0.865,null],["26",886,0.901,null],["28",824,0.934,null],["30",769,0.967,100],["40",584,1.11,130],["50",476,1.22,null],["60",400,1.34,null],["70",357,1.41,null],["80",328,1.48,null],["100",250,1.7,null],["110",227,1.78,null],["120",206,1.87,null],["150",167,2.07,null]]},
+  PET:{list:[["0.3",105262,0.09,null],["0.35",90225,0.095,null],["0.4",78946,0.104,null],["0.5",63157,0.117,null],["0.6",52630,0.128,null],["0.8",39473,0.148,null],["1",31578,0.165,null],["1.2",26315,0.185,null],["1.5",21052,0.205,null],["2",15789,0.235,null],["2.5",12631,0.26,null],["3",10526,0.285,null]]}
+};
+const NL_RATE = 1.03;
+const $ = id => document.getElementById(id);
+const getItem = (t,s) => D[t] && D[t].list.find(r => r[0] === s);
+const effLen = (t,len) => t === 'NL' ? len * NL_RATE : len;
+const fmt = (n,d=1) => n.toLocaleString('ja-JP',{maximumFractionDigits:d,minimumFractionDigits:d});
+
+function sw(id){
+  ['kg','cnt'].forEach(k => { $('tab-'+k).classList.toggle('on', k===id); $('s-'+k).classList.toggle('on', k===id); });
+}
+function fillSizes(sel, t){
+  sel.innerHTML = '';
+  if (!t){ sel.innerHTML = '<option value="">先に種類を</option>'; return; }
+  D[t].list.forEach(r => { const o = document.createElement('option'); o.value = r[0];
+    o.textContent = r[0] + '号' + (r[3] ? '  (' + r[3] + 'lb)' : ''); sel.appendChild(o); });
+}
+function badgeText(t,s){
+  const it = getItem(t,s); if (!it) return '';
+  return '糸径：φ ' + it[2] + ' mm' + (it[3] ? '　／　' + it[3] + ' lb' : '');
+}
+function showBadge(el,t,s){ const tx = badgeText(t,s); el.hidden = !tx; el.textContent = tx; }
+
+function loadSizes(p){
+  const t = $(p+'-type').value, sel = $(p+'-size');
+  fillSizes(sel, t);
+  const upd = () => { showBadge($(p+'-dbadge'), t, sel.value); nlLabel(p); };
+  sel.onchange = upd; upd();
+}
+function nlLabel(p){
+  const t = $(p+'-type').value, len = parseFloat($(p+'-len').value);
+  $(p+'-nl').textContent = (t === 'NL' && len > 0) ? '+3%→' + fmt(len*NL_RATE) + 'm' : '';
+}
+function warn(id,msg){ $(id).hidden = !msg; $(id).textContent = msg || ''; }
+
+function calcKg(){
+  const t = $('kg-type').value, s = $('kg-size').value;
+  const len = parseFloat($('kg-len').value), kg = parseFloat($('kg-weight').value);
+  if (!t || !s || !(len > 0) || !(kg > 0)) { warn('kg-warn','種類・号数・長さ・重さを入れてください。'); $('kg-ans').hidden = true; return; }
+  const it = getItem(t,s); warn('kg-warn','');
+  const L = effLen(t,len);
+  const totalM = kg * it[1];
+  const count = Math.floor(totalM / L);
+  const usedM = count * L, usedKg = usedM / it[1], remG = (kg - usedKg) * 1000;
+  $('kg-r-count').textContent = count.toLocaleString('ja-JP');
+  $('kg-r-sub').textContent = `${t} ${s}号　${len}m/個${t==='NL' ? '（3%増し '+fmt(L)+'m）' : ''}　手持ち ${kg}kg`;
+  $('kg-r-len').textContent = fmt(usedM);
+  $('kg-r-used').textContent = usedKg.toFixed(3);
+  $('kg-r-rem').textContent = remG.toFixed(1);
+  $('kg-ans').hidden = false;
+}
+
+let ic = 0;
+function addItem(){
+  const id = ++ic, d = document.createElement('div');
+  d.className = 'item'; d.id = 'item-'+id;
+  d.innerHTML = `<button class="rm" aria-label="この商品を消す" onclick="this.parentNode.remove()">×</button>
+    <div class="row">
+      <div class="f"><label for="it-${id}-t">種類</label>
+        <select id="it-${id}-t"><option value="">選択…</option><option>NL</option><option>FC</option><option>PET</option></select></div>
+      <div class="f"><label for="it-${id}-s">号数</label>
+        <select id="it-${id}-s"><option value="">先に種類を</option></select></div>
+    </div>
+    <div class="badge" id="it-${id}-b" hidden></div>
+    <div class="row" style="margin-top:8px">
+      <div class="f"><label for="it-${id}-l">長さ（m/個） <span class="nl" id="it-${id}-nl"></span></label>
+        <input type="number" id="it-${id}-l" inputmode="decimal" placeholder="例: 300"></div>
+      <div class="f"><label for="it-${id}-q">個数</label>
+        <input type="number" id="it-${id}-q" inputmode="numeric" value="1" min="1"></div>
+    </div>`;
+  $('items').appendChild(d);
+  const tSel = $(`it-${id}-t`), sSel = $(`it-${id}-s`), lIn = $(`it-${id}-l`);
+  const nl = () => { const len = parseFloat(lIn.value);
+    $(`it-${id}-nl`).textContent = (tSel.value==='NL' && len>0) ? '+3%→'+fmt(len*NL_RATE)+'m' : ''; };
+  const upd = () => { showBadge($(`it-${id}-b`), tSel.value, sSel.value); nl(); };
+  tSel.onchange = () => { fillSizes(sSel, tSel.value); upd(); };
+  sSel.onchange = upd; lIn.oninput = nl;
+}
+
+function calcCnt(){
+  let totalG = 0, totalM = 0, rows = '', n = 0;
+  document.querySelectorAll('#items .item').forEach(el => {
+    const id = el.id.split('-')[1];
+    const t = $(`it-${id}-t`).value, s = $(`it-${id}-s`).value;
+    const len = parseFloat($(`it-${id}-l`).value), q = parseInt($(`it-${id}-q`).value) || 1;
+    const it = getItem(t,s); if (!it || !(len > 0)) return;
+    n++;
+    const L = effLen(t,len), m = L * q, g = m / it[1] * 1000;
+    totalM += m; totalG += g;
+    rows += `<tr><td>${t} ${s}号</td><td>${len}m${t==='NL'?'(+3%)':''} × ${q}</td><td>${fmt(m)}</td><td>${fmt(g)} g</td></tr>`;
+  });
+  if (!n) { warn('cnt-warn','種類・号数・長さを入れた商品を1つ以上入れてください。'); $('cnt-ans').hidden = true; return; }
+  warn('cnt-warn','');
+  $('cnt-r-kg').textContent = (totalG/1000).toFixed(3);
+  $('cnt-r-sub').textContent = `合計 ${fmt(totalM)} m　／　${fmt(totalG)} g`;
+  $('cnt-rows').innerHTML = rows;
+  $('cnt-ans').hidden = false;
+}
+
+addItem();
+</script>
+</body>
+</html>
