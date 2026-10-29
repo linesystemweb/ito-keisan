@@ -92,6 +92,58 @@
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   ul.compact{margin:6px 0 0;padding-left:18px}
   ul.compact li{margin-bottom:2px}
+  #pane-help h3{color:var(--ink);font-size:14.5px;letter-spacing:0;margin:18px 0 2px}
+  #pane-help p{margin:6px 0}
+  #pane-help .compact li{margin-bottom:6px}
+  .span2{grid-column:span 2}
+  .cv{display:contents}
+  .lines .rowno{display:none}
+  .lines .delcell{white-space:nowrap}
+  /* ---- スマホ：一覧表と明細を「1件＝1カード」に積み替える ---- */
+  @media (max-width:760px){
+    .cardwrap{overflow-x:visible}
+    table.cardify thead{display:none}
+    table.cardify, table.cardify tbody, table.cardify tr, table.cardify td{display:block;width:100%}
+    table.cardify tr{border:1px solid var(--line);border-radius:12px;background:var(--surface-2);
+      padding:10px 12px 12px;margin:0 0 12px}
+    table.cardify td{border:0;padding:5px 0;display:grid;grid-template-columns:6.4em 1fr;
+      align-items:center;gap:10px;text-align:left}
+    table.cardify td::before{content:attr(data-l);color:var(--muted);font-size:12.5px;line-height:1.35;align-self:start;padding-top:3px}
+    table.cardify td > .cv{display:block;min-width:0}
+    table.cardify td > .cv > .row{justify-content:flex-start}
+    table.cardify td.num{text-align:left}
+    table.cardify td[data-hide]{display:none}
+    table.cardify td[data-wide]{display:block;padding-top:8px}
+    table.cardify td[data-wide]::before{content:none}
+    table.cardify td[data-wide]:not(.rowno){text-align:right}
+    table.cardify td[data-wide] .row{justify-content:flex-end}
+    table.cardify td[data-full]{display:block;color:var(--muted)}
+    table.cardify td[data-full]::before{content:none}
+    table.cardify tr:has(td[data-full]){background:transparent;border-style:dashed}
+    table.cardify input,table.cardify select{font-size:16px;padding:8px 9px}
+    table.cardify input[type=checkbox]{justify-self:start}
+    .lines td.rowno{display:block;font-size:12px;color:var(--muted);font-weight:500;
+      padding:0 0 8px;border-bottom:1px dashed var(--line);margin-bottom:6px;text-align:left}
+    .lines td.rowno::before{content:none}
+    .lines td[data-l="金額"]{font-size:16px;font-weight:700;padding-top:8px;
+      border-top:1px dashed var(--line);margin-top:4px}
+    .lines td.delcell{display:flex;justify-content:flex-end;padding-top:8px}
+    .lines td.delcell::before{content:none}
+    input,select,textarea{font-size:16px}   /* iPhoneの勝手な拡大を止める */
+    .stat{flex:1 1 44%}
+    nav.tabs{gap:4px}
+    nav.tabs button{padding:7px 10px}
+    .wrap{padding-inline:12px}
+    .card{padding:13px}
+    #catRow .btn, #groupList .btn{flex:0 1 auto}
+    #saveOrder, #previewBtn{flex:1 1 140px}
+    #g-q, #g-prev{max-width:none!important}
+    .sheet{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    #previewCard .row > .right{margin-left:0;width:100%}
+    .grid.g3, .grid.g2{grid-template-columns:1fr}
+    .span2{grid-column:auto}
+    label.field select, label.field input{min-width:0}
+  }
   @media (max-width:560px){ .sheet{padding:14px} h1{font-size:18px} }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -120,7 +172,45 @@
     <button role="tab" id="tab-recv" aria-selected="false">入荷消し込み</button>
     <button role="tab" id="tab-sum" aria-selected="false">集計・支払予定</button>
     <button role="tab" id="tab-master" aria-selected="false">マスタ</button>
+    <button role="tab" id="tab-help" aria-selected="false">使い方</button>
   </nav>
+
+
+  <!-- ============ 使い方 ============ -->
+  <section id="pane-help" hidden>
+    <div class="card">
+      <h2>はじめての方へ</h2>
+      <p class="tiny muted" style="margin-top:0">注文書を作って、メールかFAXで送って、届いた分を消し込んで、支払予定まで見る。発注まわりを一か所にまとめた社内アプリです。データは全員で共有しています。</p>
+      <h3 style="margin-top:14px">1. 自分の名前を選ぶ</h3>
+      <p>右上の「あなた（発注者）」で自分を選びます。注文番号のうしろに付くイニシャルと、注文書の発注者名になります。一度選べば次から覚えています。</p>
+      <h3>2. 注文書を作る</h3>
+      <p>「注文書を作る」で仕入先・希望納期・納入先を選び、明細に品番か品名を入れます。<strong>マスタに登録されている品物なら、品名・サイズ・単位・単価が自動で入ります。</strong>無い品物はそのまま手で入力して発注できます。</p>
+      <p>サイズ違いをまとめて頼むときは「まとめて入力」が早いです。商品名で絞って、数量を入れた行だけが明細に入ります。</p>
+      <h3>3. 登録して送る</h3>
+      <p>「発注を登録する」で注文番号が付きます（例 LS26-0001-MI）。<span id="help-th">金額が大きいものは承認待ちに入ります。</span></p>
+      <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。</p>
+      <ul class="compact">
+        <li><strong>メールを作成</strong>…宛先・件名・本文が入った下書きができます。内容を見てから自分で送信してください。</li>
+        <li><strong>FAX送信用PDFを保存</strong>…PDFが保存されます。FAXの仕入先はこちらです。</li>
+      </ul>
+      <h3>4. 届いたら消し込む</h3>
+      <p>「入荷消し込み」に未入荷の明細が並びます。届いた数量と入荷日を入れて「登録」。分けて届く（分納）ときは、届いたぶんだけ何回でも登録できます。残りが来ないと分かったら「打切り」。</p>
+      <h3>5. 見直す</h3>
+      <p>「発注一覧」で過去の注文を検索でき、「開く」から注文書を出し直せます。副発注No.と社内メモは後から直せます。「集計・支払予定」では、入荷した月の翌月払いで支払予定が出ます。</p>
+    </div>
+
+    <div class="card">
+      <h2>よくあるつまずき</h2>
+      <ul class="compact">
+        <li><strong>開くとサインインを求められる</strong>…会社のMicrosoftアカウント（@linesystem.jp）で入ってください。一度入れば次から自動で開きます。アプリのインストールは要りません。</li>
+        <li><strong>自分の名前が選べない</strong>…「マスタ」の担当者に追加してください。</li>
+        <li><strong>単価が出ない／古い</strong>…「マスタ」の品目で単価と時点を更新できます。履歴は残ります。</li>
+        <li><strong>間違えて登録した</strong>…消す操作は用意していません。南出までご連絡ください。</li>
+        <li><strong>スマホで試すとき</strong>…明細は1品ずつカードで表示されます。作成はパソコンのほうが早いので、外からは「発注一覧」と「入荷消し込み」の確認にお使いください。</li>
+      </ul>
+      <p class="hint">お試しで作った注文書は、社内メモか備考に「テスト」と入れておいてください。実際に送信されてしまうので、試すだけなら「注文書プレビュー」で止めてください。</p>
+    </div>
+  </section>
 
   <!-- ============ 注文書を作る ============ -->
   <section id="pane-new">
@@ -183,7 +273,7 @@
           <button class="btn quiet small" id="addLine10">10行足す</button>
         </span>
       </div>
-      <div class="tablewrap">
+      <div class="tablewrap linewrap">
         <table class="lines">
           <thead><tr id="lineHead"></tr></thead>
           <tbody id="lineBody"></tbody>
@@ -230,7 +320,7 @@
         </select></label>
         <label class="field"><span>承認者</span><select id="ap-who"></select></label>
         <label class="field"><span>この金額を超えたら承認（税込・0なら全件）</span><input id="ap-th" inputmode="numeric" value="100000"></label>
-        <label class="field" style="grid-column:span 2"><span>Teamsの通知先（ワークフローのWebhook URL・空なら通知しない）</span><input id="ap-chat" placeholder="https://prod-00.japaneast.logic.azure.com/..."></label>
+        <label class="field span2"><span>Teamsの通知先（ワークフローのWebhook URL・空なら通知しない）</span><input id="ap-chat" placeholder="https://prod-00.japaneast.logic.azure.com/..."></label>
         <label class="field"><span>注文メールの差出人（共有アドレス）</span><input id="ap-from" placeholder="例 fishing2@linesystem.jp" value="fishing2@linesystem.jp"></label>
       </div>
       <div class="row" style="margin-top:12px">
@@ -653,22 +743,22 @@
   }
   function renderLines(){
     const cols = activeCols();
-    el('lineHead').innerHTML = cols.map(c=>`<th${c.num?' class="num"':''} style="min-width:${c.w}">${c.t}</th>`).join('')
+    el('lineHead').innerHTML = '<th class="rowno"></th>' + cols.map(c=>`<th${c.num?' class="num"':''} style="min-width:${c.w}">${c.t}</th>`).join('')
       + '<th style="min-width:56px">登録</th><th class="num" style="min-width:90px">金額</th><th></th>';
     el('lineBody').innerHTML = lines.map((ln,i)=>{
       const cells = cols.map(c=>{
-        if(c.k==='cur') return `<td><select data-i="${i}" data-k="cur"><option value="JPY"${ln.cur==='JPY'?' selected':''}>円</option><option value="USD"${ln.cur==='USD'?' selected':''}>US$</option></select></td>`;
+        if(c.k==='cur') return `<td data-l="${c.t}"><select data-i="${i}" data-k="cur"><option value="JPY"${ln.cur==='JPY'?' selected':''}>円</option><option value="USD"${ln.cur==='USD'?' selected':''}>US$</option></select></td>`;
         const list = c.k==='code' ? ' list="codeList"' : c.k==='name' ? ' list="nameList"'
           : c.k==='size' ? ' list="sizeList"' : '';
         const full = (c.k==='name' && ln.name && ln.name.length > 16)
           ? `<div class="tiny muted" style="margin-top:3px;white-space:normal">${esc(ln.name)}</div>` : '';
-        return `<td><input data-i="${i}" data-k="${c.k}"${list} value="${esc(ln[c.k])}"${c.k==='name'?` title="${esc(ln.name)}"`:''}${c.num?' inputmode="decimal" class="num"':''}>${full}</td>`;
+        return `<td data-l="${c.t}"><input data-i="${i}" data-k="${c.k}"${list} value="${esc(ln[c.k])}"${c.k==='name'?` title="${esc(ln.name)}"`:''}${c.num?' inputmode="decimal" class="num"':''}>${full}</td>`;
       }).join('');
       const amt = lineAmount(ln);
-      return `<tr>${cells}
-        <td style="text-align:center"><input type="checkbox" data-i="${i}" data-k="register" ${ln.register?'checked':''} style="width:auto" title="マスタに仮登録する"></td>
-        <td class="num">${ln.cur==='USD' ? (amt?('US$'+amt.toLocaleString('ja-JP')):'—') : yen(amt)}</td>
-        <td><button class="btn quiet small" data-del="${i}">削除</button></td></tr>`;
+      return `<tr><td class="rowno" data-l="">${i+1}行目</td>${cells}
+        <td data-l="マスタに登録" style="text-align:center"><input type="checkbox" data-i="${i}" data-k="register" ${ln.register?'checked':''} style="width:auto" title="マスタに仮登録する"></td>
+        <td class="num" data-l="金額">${ln.cur==='USD' ? (amt?('US$'+amt.toLocaleString('ja-JP')):'—') : yen(amt)}</td>
+        <td class="delcell"><button class="btn quiet small" data-del="${i}">削除</button></td></tr>`;
     }).join('');
     totals();
   }
@@ -1209,6 +1299,19 @@
     fillSelect(el('ap-who'), staffList().map(s=>({v:s.i, t:s.n})), settings.approver || 'KO');
     el('ap-chat').value = settings.chatId || '';
     el('ap-from').value = settings.fromAddr || '';
+    const th = Number(settings.threshold) || 0;
+    const money = th >= 10000 ? (th/10000) + '万円' : th.toLocaleString('ja-JP') + '円';
+    const hh = el('help-th');
+    if(hh) hh.textContent = settings.useApproval
+      ? (th > 0 ? ('税込' + money + 'を超えると、送る前に承認待ちに入ります。')
+                : 'すべて、送る前に承認待ちに入ります。')
+      : '承認は使わない設定なので、そのまま送れます。';
+    const h = el('newHint');
+    if(h) h.textContent = '登録すると番号が自動で付きます（例 LS26-0001-MI）。'
+      + (settings.useApproval
+          ? (th > 0 ? ('税込' + (th>=10000 ? (th/10000) + '万円' : th.toLocaleString('ja-JP') + '円') + 'を超えると承認待ちになります。')
+                    : 'すべて承認待ちになります。')
+          : '承認は使わない設定です。');
   }
   function needsApproval(order){
     if(!settings.useApproval) return false;
@@ -1266,7 +1369,7 @@
   function renderAll(){ renderList(); renderRecv(); renderSummary(); renderMaster(); renderPrevOrders(); renderApprovals(); renderStaff(); }
 
   // ---------- tabs ----------
-  const TABS = ['new','approve','list','recv','sum','master'];
+  const TABS = ['new','approve','list','recv','sum','master','help'];
   function switchTab(name){
     TABS.forEach(t=>{
       el('pane-'+t).hidden = t!==name;
@@ -1682,6 +1785,64 @@
   });
 
   try{ renderAll(); }catch(e){}
+
+  // ---------- スマホ用：見出しのある一覧表を「1件＝1カード」に整える ----------
+  // 表のthから各セルの見出しを写し、空のセルは隠す。CSSは760px以下でだけ効く。
+  function cardifyTable(t){
+    const head = t.tHead && t.tHead.rows[0];
+    if(!head) return;                                  // 見出しのない集計表はそのまま
+    t.classList.add('cardify');
+    if(t.parentElement) t.parentElement.classList.add('cardwrap');
+    const labels = [].map.call(head.cells, function(th){ return th.textContent.trim(); });
+    [].forEach.call(t.tBodies, function(tb){
+      [].forEach.call(tb.rows, function(tr){
+        [].forEach.call(tr.cells, function(td, i){
+          if(td.colSpan > 1){ td.setAttribute('data-full',''); return; }
+          const lab = labels[i] || '';
+          td.setAttribute('data-l', lab);
+          const ctrl  = td.querySelector('input,select,textarea,button');
+          const empty = !td.textContent.trim() && !ctrl && !td.querySelector('a,img');
+          if(lab) td.removeAttribute('data-wide'); else td.setAttribute('data-wide','');
+          if(empty && lab) td.setAttribute('data-hide',''); else td.removeAttribute('data-hide');
+          // 値をspanで包むと見出しと行頭がそろう。
+          // 入力欄のあるセルは包まない（包み直すと入力中のカーソルが外れるため）。
+          if(!ctrl && td.childNodes.length &&
+             !(td.childNodes.length === 1 && td.firstElementChild &&
+               td.firstElementChild.classList.contains('cv'))){
+            const cv = document.createElement('span');
+            cv.className = 'cv';
+            while(td.firstChild) cv.appendChild(td.firstChild);
+            td.appendChild(cv);
+          }
+        });
+      });
+    });
+  }
+  function cardifyAll(){ document.querySelectorAll('.tablewrap > table').forEach(cardifyTable); }
+  // どの描画のあとでも効くように、中身が変わった表だけ作り直す
+  (function(){
+    const todo = new Set();
+    let pending = false;
+    const flush = function(){
+      pending = false;
+      const list = [...todo]; todo.clear();
+      list.forEach(function(t){ if(t.isConnected) cardifyTable(t); });
+    };
+    const mo = new MutationObserver(function(recs){
+      recs.forEach(function(r){
+        const node = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        const t = node && node.closest && node.closest('.tablewrap > table');
+        if(t) todo.add(t);
+      });
+      if(todo.size && !pending){
+        pending = true;
+        (window.requestAnimationFrame || setTimeout)(flush, 0);
+      }
+    });
+    mo.observe(document.body, { childList:true, subtree:true });
+    cardifyAll();
+  })();
+
   boot();
 })();
 </script>
