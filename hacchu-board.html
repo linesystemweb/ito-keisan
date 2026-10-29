@@ -426,7 +426,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-26 v1';
+  const APP_VER     = '2026-10-29 v2';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -560,6 +560,7 @@
       refreshStaffSelects();
       applySettings();
       renderAll(); renderMaster(); refreshItemList(); renderSuppliers(); renderStaff();
+      renderCats(); renderGroups();        // まとめて入力の札も作り直す
       return true;
     } finally { loading = false; }
   }
