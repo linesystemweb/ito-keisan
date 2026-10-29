@@ -1189,9 +1189,10 @@
       <td class="tiny muted">${esc((s.cols||[]).map(c=>({size:'サイズ',color:'色',form:'形態'}[c])).join('・')||'—')}</td></tr>`).join('');
     const opts = suppliers().map(s=>({v:s.n,t:s.n}));
     const cur = el('f-sup').value;
-    fillSelect(el('f-sup'), opts, cur || opts[0].v);
+    const first = opts.length ? opts[0].v : '';
+    fillSelect(el('f-sup'), opts, cur || first);
     fillSelect(el('l-sup'), [{v:'',t:'すべて'}].concat(opts), el('l-sup').value);
-    fillSelect(el('ni-sup'), opts, el('ni-sup').value || cur || opts[0].v);
+    fillSelect(el('ni-sup'), opts, el('ni-sup').value || cur || first);
   }
 
   // ---------- 承認 ----------
@@ -1272,13 +1273,12 @@
   try{ const saved = localStorage.getItem('po.me'); if(saved) el('me').value = saved; }catch(e){}
   el('me').onchange = ()=>{ try{ localStorage.setItem('po.me', el('me').value); }catch(e){} };
   fillSelect(el('l-staff'), [{v:'',t:'全員'}].concat(staffList().map(s=>({v:s.i,t:s.n}))), '');
-  renderSuppliers();
-  renderStaff();
+  try{ renderSuppliers(); renderStaff(); }catch(e){}
   el('f-date').value = today();
   el('f-to').onchange = syncToDetail;
   syncToDetail();
   lines = [blankLine(), blankLine()];
-  renderLines(); refreshItemList(); renderCats(); renderGroups();
+  try{ renderLines(); refreshItemList(); renderCats(); renderGroups(); }catch(e){}
 
   TABS.forEach(t => el('tab-'+t).onclick = ()=>switchTab(t));
   try{ const t = localStorage.getItem('po.tab'); if(t && TABS.includes(t)) switchTab(t); }catch(e){}
@@ -1674,7 +1674,7 @@
     renderSuppliers();
   });
 
-  renderAll();
+  try{ renderAll(); }catch(e){}
   boot();
 })();
 </script>
