@@ -1,0 +1,1682 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>発注ボード</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.28.1/msal-browser.min.js"></script>
+<style>
+  :root{
+    --bg:#f2f4f1; --surface:#ffffff; --surface-2:#f7f9f6; --ink:#16211c; --muted:#5d6b63;
+    --line:#d7ded7; --accent:#0b6b5f; --accent-soft:#e3f0ec; --warn:#a56313; --warn-soft:#fbf0dd;
+    --bad:#9e3730; --bad-soft:#f9e6e4; --shadow:0 1px 2px rgba(22,33,28,.06),0 6px 20px rgba(22,33,28,.05);
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1411; --surface:#161e19; --surface-2:#1b2521; --ink:#e7eee9; --muted:#9aa9a1;
+      --line:#2b3831; --accent:#53c0a7; --accent-soft:#16302a; --warn:#d9a05a; --warn-soft:#2e2517;
+      --bad:#e08a82; --bad-soft:#331e1c; --shadow:0 1px 2px rgba(0,0,0,.4);
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1411; --surface:#161e19; --surface-2:#1b2521; --ink:#e7eee9; --muted:#9aa9a1;
+    --line:#2b3831; --accent:#53c0a7; --accent-soft:#16302a; --warn:#d9a05a; --warn-soft:#2e2517;
+    --bad:#e08a82; --bad-soft:#331e1c; --shadow:0 1px 2px rgba(0,0,0,.4);
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{background:var(--bg);color:var(--ink);font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px;line-height:1.6}
+  .wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 60px}
+  h1,h2,h3{font-family:"Zen Kaku Gothic New","Noto Sans JP",system-ui,sans-serif;text-wrap:balance;margin:0}
+  h1{font-size:20px;letter-spacing:.02em}
+  h2{font-size:16px;margin-bottom:10px}
+  h3{font-size:14px;color:var(--muted);letter-spacing:.06em;text-transform:none}
+  header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+  .sub{color:var(--muted);font-size:12.5px}
+  nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  nav.tabs button{font:inherit;font-weight:500;background:transparent;border:1px solid transparent;color:var(--muted);
+    padding:7px 13px;border-radius:999px;cursor:pointer}
+  nav.tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+  nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+  .card + .card{margin-top:14px}
+  .grid{display:grid;gap:12px}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  label.field{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+  input,select,textarea,button{font:inherit;color:var(--ink)}
+  input,select,textarea{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%}
+  input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .btn{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:8px;padding:8px 15px;cursor:pointer;font-weight:500}
+  .btn.ghost{background:transparent;color:var(--accent)}
+  .btn.quiet{background:var(--surface-2);color:var(--ink);border-color:var(--line)}
+  .btn.small{padding:4px 9px;font-size:12.5px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .right{margin-left:auto}
+  .tablewrap{overflow-x:auto;margin-top:10px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+  th{font-size:11.5px;letter-spacing:.05em;color:var(--muted);font-weight:500;white-space:nowrap}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;border:1px solid var(--line);white-space:nowrap}
+  .pill.ok{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+  .pill.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+  .pill.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+  .muted{color:var(--muted)}
+  .tiny{font-size:12px}
+  .banner{border:1px solid var(--warn);background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:9px 12px;margin-bottom:14px;font-size:13px}
+  .stat{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
+  .stat b{font-size:22px;font-family:"Zen Kaku Gothic New",sans-serif;font-variant-numeric:tabular-nums}
+  .sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:28px;font-size:22px;line-height:1.5;max-width:920px}
+  .sheet h4{text-align:center;letter-spacing:.5em;font-size:34px;margin:0 0 20px;font-family:"Zen Kaku Gothic New",sans-serif}
+  .sheet table{font-size:19px}
+  .sheet th,.sheet td{border-bottom:1px solid #ccc;color:#111;padding:6px 8px}
+  .sheet .co{font-size:20px}
+  .sheet th{font-size:16px;white-space:nowrap}
+  .sheet td{white-space:nowrap}
+  .sheet td:nth-child(3){white-space:normal}
+  @media (max-width:700px){ .sheet{font-size:17px} .sheet h4{font-size:26px} .sheet table{font-size:15px} }
+  .sheet .co{text-align:right;line-height:1.5}
+  .lines td{padding:4px 5px}
+  .lines input,.lines select{padding:5px 6px;font-size:12.5px}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  ul.compact{margin:6px 0 0;padding-left:18px}
+  ul.compact li{margin-bottom:2px}
+  @media (max-width:560px){ .sheet{padding:14px} h1{font-size:18px} }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>発注ボード</h1>
+      <div class="sub">注文書の作成から送信・入荷消し込み・支払予定まで、社内で一括管理する試作版です。</div>
+    </div>
+    <div class="row">
+      <label class="field" style="min-width:150px">
+        <span>あなた（発注者）</span>
+        <select id="me"></select>
+      </label>
+      <div class="tiny muted" id="whoami" style="align-self:flex-end;padding-bottom:6px"></div>
+    </div>
+  </header>
+
+  <div id="storeBanner" class="banner" hidden></div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-new" aria-selected="true">注文書を作る</button>
+    <button role="tab" id="tab-approve" aria-selected="false">承認待ち<span id="pendBadge" class="pill warn" hidden style="margin-left:6px"></span></button>
+    <button role="tab" id="tab-list" aria-selected="false">発注一覧</button>
+    <button role="tab" id="tab-recv" aria-selected="false">入荷消し込み</button>
+    <button role="tab" id="tab-sum" aria-selected="false">集計・支払予定</button>
+    <button role="tab" id="tab-master" aria-selected="false">マスタ</button>
+  </nav>
+
+  <!-- ============ 注文書を作る ============ -->
+  <section id="pane-new">
+    <div class="card">
+      <div class="grid g3">
+        <label class="field"><span>仕入先</span><select id="f-sup"></select></label>
+        <label class="field"><span>発注日</span><input type="date" id="f-date"></label>
+        <label class="field"><span>希望納期</span><input type="text" id="f-due" placeholder="納期ご連絡願います。"></label>
+        <label class="field"><span>納入先</span><select id="f-to">
+          <option>㈱ラインシステム</option><option>指定倉庫</option><option>内職先</option><option>アングラーズベース下北山</option><option>その他</option>
+        </select></label>
+        <label class="field" id="toDetailWrap" hidden><span>納入先の名称（注文書に出ます）</span>
+          <input type="text" id="f-to2" placeholder="例 〇〇運輸 奈良倉庫"></label>
+        <label class="field"><span>梱包</span><select id="f-pack">
+          <option>国内向け</option><option>輸出向け</option>
+        </select></label>
+        <label class="field"><span>備考（注文書に太字で出ます）</span><input type="text" id="f-note" placeholder="ボビンお送りします。"></label>
+        <label class="field"><span>副発注No.（先方の番号・後から入れてもOK）</span><input type="text" id="f-subno" placeholder="例 G210039"></label>
+        <label class="field"><span>社内メモ（注文書には出ません）</span><input type="text" id="f-memo" placeholder="例 OEM向け／内職用／展示会分"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">まとめて入力</h2>
+        <span class="tiny muted">サイズ違いをまとめて発注するときはこちら。数量を入れた行だけ明細に入ります。</span>
+      </div>
+      <div class="row" id="catRow" style="margin-top:10px"></div>
+      <div class="row" style="margin-top:10px">
+        <input id="g-q" placeholder="商品名で探す（例：出陣、KWG、ウキケース）" style="max-width:320px">
+        <select id="g-prev" style="max-width:260px"><option value="">前回の注文から複製…</option></select>
+        <button class="btn quiet small" id="pasteBtn">Excelから貼り付け</button>
+      </div>
+      <div id="groupList" class="row" style="margin-top:10px;gap:6px"></div>
+      <div id="gridWrap" hidden>
+        <div class="row" style="margin-top:12px">
+          <h3 id="gridTitle" style="margin:0"></h3>
+          <span class="tiny muted" id="gridCount"></span>
+          <button class="btn small right" id="gridAdd">数量を入れた行を明細に追加</button>
+        </div>
+        <div class="tablewrap">
+          <table><thead><tr><th>品番</th><th>サイズ・号数</th><th>色</th><th>形態</th><th class="num">前回単価</th><th>単位</th><th class="num" style="min-width:110px">数量</th></tr></thead>
+          <tbody id="gridBody"></tbody></table>
+        </div>
+      </div>
+      <div id="pasteWrap" hidden style="margin-top:12px">
+        <label class="field"><span>1行に「品番（または品名）／タブ／数量／タブ／単価（任意）」。Excelの列をそのままコピーできます。</span>
+          <textarea id="pasteArea" rows="5" placeholder="SJN-080	3000	5.67&#10;KWG-008	2000"></textarea></label>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="pasteAdd">読み込んで明細に追加</button>
+          <span class="tiny muted" id="pasteMsg"></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">明細</h2>
+        <span class="tiny muted" id="lineHint">品番か品名を入れると候補が出ます。無ければそのまま入力して発注できます。</span>
+        <span class="right row" style="gap:6px">
+          <button class="btn quiet small" id="addLine">行を足す</button>
+          <button class="btn quiet small" id="addLine10">10行足す</button>
+        </span>
+      </div>
+      <div class="tablewrap">
+        <table class="lines">
+          <thead><tr id="lineHead"></tr></thead>
+          <tbody id="lineBody"></tbody>
+        </table>
+      </div>
+      <datalist id="codeList"></datalist>
+      <datalist id="nameList"></datalist>
+      <datalist id="sizeList"></datalist>
+      <div class="row" style="margin-top:12px">
+        <div class="stat" style="min-width:150px"><span class="tiny muted">合計数量</span><b id="totQty">0</b></div>
+        <div class="stat" style="min-width:150px"><span class="tiny muted">税抜小計</span><b id="totNet">¥0</b></div>
+        <div class="stat" style="min-width:150px"><span class="tiny muted">消費税 10%</span><b id="totTax">¥0</b></div>
+        <div class="stat" style="min-width:160px"><span class="tiny muted">税込合計</span><b id="totGross">¥0</b></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="saveOrder">発注を登録する</button>
+        <button class="btn quiet" id="previewBtn">注文書プレビュー</button>
+        <span class="tiny muted" id="saveMsg"></span>
+      </div>
+      <div class="hint" id="newHint">登録すると番号が自動で付きます（例 LS26-0001-MI）。税込10万円を超えると承認待ちになります。</div>
+    </div>
+
+    <div class="card" id="previewCard" hidden>
+      <div class="row"><h2 style="margin:0">注文書プレビュー</h2>
+        <span class="right row" style="gap:6px">
+          <button class="btn small" id="draftMail">メールを作成</button>
+          <button class="btn quiet small" id="openMail">宛先だけ開く</button>
+          <button class="btn quiet small" id="copyMail">メール本文をコピー</button>
+          <button class="btn small" id="saveFax">FAX送信用PDFを保存</button>
+        </span></div>
+      <div class="hint" id="mailHint"></div>
+      <div id="sheet" class="sheet" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ============ 承認待ち ============ -->
+  <section id="pane-approve" hidden>
+    <div class="card">
+      <h2>承認の設定</h2>
+      <div class="grid g3">
+        <label class="field"><span>承認</span><select id="ap-on">
+          <option value="off">使わない（登録したらそのまま送信）</option>
+          <option value="on">使う（承認してから送信）</option>
+        </select></label>
+        <label class="field"><span>承認者</span><select id="ap-who"></select></label>
+        <label class="field"><span>この金額を超えたら承認（税込・0なら全件）</span><input id="ap-th" inputmode="numeric" value="100000"></label>
+        <label class="field" style="grid-column:span 2"><span>Teamsの通知先（ワークフローのWebhook URL・空なら通知しない）</span><input id="ap-chat" placeholder="https://prod-00.japaneast.logic.azure.com/..."></label>
+        <label class="field"><span>注文メールの差出人（共有アドレス）</span><input id="ap-from" placeholder="例 fishing2@linesystem.jp" value="fishing2@linesystem.jp"></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn quiet small" id="ap-save">設定を保存</button>
+        <span class="tiny muted" id="ap-msg"></span>
+      </div>
+      <div class="hint">通知は保管サーバからTeamsのワークフローへ送られます。空にしておくと通知せず、承認待ちはこの画面にだけ出ます。</div>
+    </div>
+    <div class="card">
+      <div class="row"><h2 style="margin:0">承認待ちの発注</h2><span class="tiny muted" id="ap-count"></span></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th class="num">明細</th><th class="num">税込金額</th><th>依頼</th><th></th></tr></thead>
+          <tbody id="apBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>承認の記録</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>発注No</th><th>結果</th><th>承認者</th><th>日時</th><th>理由</th></tr></thead>
+          <tbody id="apLog"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 発注一覧 ============ -->
+  <section id="pane-list" hidden>
+    <div class="card">
+      <div class="grid g3">
+        <label class="field"><span>発注者</span><select id="l-staff"><option value="">全員</option></select></label>
+        <label class="field"><span>仕入先</span><select id="l-sup"><option value="">すべて</option></select></label>
+        <label class="field"><span>状態</span><select id="l-status">
+          <option value="">すべて</option><option value="open">未入荷あり</option><option value="done">入荷完了</option>
+        </select></label>
+        <label class="field"><span>検索（発注No・副発注No・社内メモ・品名）</span><input id="l-q" placeholder="例 G210039、OEM向け"></label>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>発注No</th><th>副発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th>社内メモ</th><th class="num">明細</th><th class="num">税込金額</th><th>状態</th><th></th></tr></thead>
+          <tbody id="listBody"></tbody>
+        </table>
+      </div>
+      <div class="hint" id="listEmpty" hidden>まだ発注がありません。「注文書を作る」から登録してください。</div>
+    </div>
+    <div class="card" id="detailCard" hidden><div id="detail"></div></div>
+  </section>
+
+  <!-- ============ 入荷 ============ -->
+  <section id="pane-recv" hidden>
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">未入荷の明細</h2>
+        <label class="row tiny" style="gap:5px;margin-left:auto"><input type="checkbox" id="lateOnly" style="width:auto"> 納期を過ぎたものだけ</label>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">発注</th><th class="num">入荷済</th><th class="num">残</th><th>納期</th><th>入荷入力</th></tr></thead>
+          <tbody id="recvBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">実際に届いた数をそのまま入れてください。多くても少なくても登録できます。残りが来ない場合は「打切り」で閉じます。</div>
+    </div>
+  </section>
+
+  <!-- ============ 集計 ============ -->
+  <section id="pane-sum" hidden>
+    <div class="card">
+      <h2>支払予定（入荷ベース・入荷月の翌月払い）</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>支払月</th><th>仕入先</th><th class="num">税抜</th><th class="num">消費税</th><th class="num">税込</th><th class="num">単価未定</th></tr></thead>
+          <tbody id="payBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">米ドルの行は入荷入力で為替レートを入れると円に換算されます。レート未入力の行は「単価未定」に数えます。</div>
+    </div>
+    <div class="card">
+      <h2>発注の状況</h2>
+      <div class="grid g2">
+        <div><h3>発注者別（件数・税込）</h3><div class="tablewrap"><table><tbody id="byStaff"></tbody></table></div></div>
+        <div><h3>仕入先別（件数・税込）</h3><div class="tablewrap"><table><tbody id="bySup"></tbody></table></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ マスタ ============ -->
+  <section id="pane-master" hidden>
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">品目マスタ</h2>
+        <span class="tiny muted" id="masterCount"></span>
+        <span class="tiny" id="m-msg" style="color:var(--accent)"></span>
+        <select id="m-cat" style="max-width:150px;margin-left:auto"><option value="">区分すべて</option><option>YGK商品</option><option>バルク</option><option>巻き</option><option>資材</option><option>針・金具</option><option>ウキ材</option><option>それ以外</option></select>
+        <input id="m-q" placeholder="品番・品名で検索" style="max-width:240px">
+        <button class="btn quiet small" id="m-csv">CSVで書き出す</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>仕入先</th><th>区分</th><th>品番</th><th>品名</th><th>サイズ</th><th>色</th><th>形態</th><th class="num">単価</th><th>単位</th><th>単価の時点</th><th>出典</th><th>単価を更新</th></tr></thead>
+          <tbody id="masterBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">単価は時点の新しい記録が使われます。値上げの連絡が来たら、その行の「単価を更新」に新しい単価と日付を入れてください。履歴は残ります。</div>
+    </div>
+
+    <div class="card">
+      <h2>品目を追加</h2>
+      <div class="grid g3">
+        <label class="field"><span>仕入先</span><select id="ni-sup"></select></label>
+        <label class="field"><span>商品コード（空ならTMP番号）</span><input id="ni-code"></label>
+        <label class="field"><span>商品名</span><input id="ni-name"></label>
+        <label class="field"><span>サイズ・号数</span><input id="ni-size"></label>
+        <label class="field"><span>色</span><input id="ni-color"></label>
+        <label class="field"><span>形態</span><input id="ni-form"></label>
+        <label class="field"><span>単位</span><input id="ni-unit" placeholder="個 / m / kg / pcs"></label>
+        <label class="field"><span>単価</span><input id="ni-price" inputmode="decimal"></label>
+        <label class="field"><span>通貨</span><select id="ni-cur"><option value="JPY">円</option><option value="USD">US$</option></select></label>
+        <label class="field"><span>単価の時点</span><input id="ni-date" type="date"></label>
+        <label class="field"><span>区分</span><select id="ni-cat"><option>YGK商品</option><option>バルク</option><option>巻き</option><option>資材</option><option>針・金具</option><option>ウキ材</option><option>それ以外</option></select></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="ni-add">マスタに追加</button>
+        <span class="tiny muted" id="ni-msg"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>仕入先</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>仕入先</th><th>正式名称</th><th>既定の送信</th><th>注文書の送信先メール</th><th>CC</th><th>FAX番号</th><th>明細に出す列</th></tr></thead>
+          <tbody id="supBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">メールアドレスを入れると、注文書プレビューの「メールソフトで開く」で宛先・件名・本文が入った状態で立ち上がります。</div>
+      <div class="row" style="margin-top:12px">
+        <input id="ns-name" placeholder="新しい仕入先（略称）" style="max-width:200px">
+        <input id="ns-full" placeholder="正式名称" style="max-width:240px">
+        <input id="ns-mail" placeholder="メールアドレス" style="max-width:220px">
+        <input id="ns-cc" placeholder="CC（カンマ区切り）" style="max-width:220px">
+        <input id="ns-fax" placeholder="FAX番号" style="max-width:150px">
+        <select id="ns-send" style="max-width:130px"><option value="mail">メール</option><option value="fax">FAX</option></select>
+        <button class="btn quiet small" id="addSup">追加</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>担当者</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>氏名</th><th>イニシャル</th><th>注文番号の例</th><th></th></tr></thead>
+          <tbody id="staffBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">イニシャルは注文番号の末尾に入ります（例 LS26-0001-<b>MI</b>）。重複しない2文字で登録してください。</div>
+      <div class="row" style="margin-top:12px">
+        <input id="nst-name" placeholder="氏名" style="max-width:180px">
+        <input id="nst-init" placeholder="イニシャル（2文字）" style="max-width:170px" maxlength="4">
+        <button class="btn quiet small" id="addStaff">追加</button>
+        <span class="tiny muted" id="staffMsg"></span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  let M = { items: [], suppliers: [], staff: [] };   // 保管サーバから受け取る
+  const yen = n => (n==null||isNaN(n)) ? '—' : '¥' + Math.round(n).toLocaleString('ja-JP');
+  const numf = n => (n==null||isNaN(n)) ? '' : Number(n).toLocaleString('ja-JP');
+  const el = id => document.getElementById(id);
+  const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const today = () => new Date().toISOString().slice(0,10);
+  // 2026-10-12 → 2026年10月12日、2026-10 → 2026年10月
+  function jdate(v){
+    const s = String(v||'').trim();
+    if(!s) return '';
+    const m = s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/);
+    if(!m) return s;
+    return m[3] ? `${m[1]}年${+m[2]}月${+m[3]}日` : `${m[1]}年${+m[2]}月`;
+  }
+  const jdatetime = v => {
+    const s = String(v||'');
+    const d = jdate(s.slice(0,10));
+    const t = s.slice(11,16);
+    return d ? (t ? `${d} ${t}` : d) : '';
+  };
+
+  // ---------- 保管サーバ（GAS）とサインイン ----------
+  const GAS_URL     = 'https://script.google.com/macros/s/AKfycbxCCBAcI3yV6lmJNSw8Z17LheHpIjiG7UuK7XIuwH-Bwi4UcQ7gMg6ZPvzKiKi_kW9b/exec';
+  const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
+  const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
+  const SCOPES      = ['User.Read'];
+  const APP_VER     = '2026-10-26 v1';
+
+  let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
+  let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
+                  chatId:'', chatName:'', fromAddr:'fishing2@linesystem.jp'};
+  let pca = null, account = null, token = '';
+
+  function banner(msg){
+    const b = el('storeBanner');
+    if(!b) return;
+    if(!msg){ b.hidden = true; return; }
+    b.hidden = false; b.textContent = msg;
+  }
+
+  // 会社のMicrosoft 365アカウントで本人確認する。
+  // 内職伝票アプリと同じEntra登録を使うので、新しい同意は要らない。
+  async function ensureToken(){
+    if(!window.msal){ banner('サインインの部品を読み込めませんでした。画面を再読み込みしてください。'); return ''; }
+    if(!pca){
+      pca = new msal.PublicClientApplication({
+        auth: { clientId: MSAL_CLIENT,
+                authority: 'https://login.microsoftonline.com/' + MSAL_TENANT,
+                redirectUri: location.origin + location.pathname },
+        cache: { cacheLocation: 'localStorage' }
+      });
+      await pca.initialize();
+      const back = await pca.handleRedirectPromise();
+      if(back && back.account) pca.setActiveAccount(back.account);
+    }
+    let acc = pca.getActiveAccount() || pca.getAllAccounts()[0];
+    if(!acc){
+      banner('サインイン画面に移ります…');
+      await pca.loginRedirect({ scopes: SCOPES });
+      return '';
+    }
+    pca.setActiveAccount(acc);
+    account = acc;
+    try{
+      const r = await pca.acquireTokenSilent({ scopes: SCOPES, account: acc });
+      token = r.accessToken;
+      return token;
+    }catch(e){
+      await pca.acquireTokenRedirect({ scopes: SCOPES, account: acc });
+      return '';
+    }
+  }
+
+  // 保管サーバへの問い合わせ。
+  // text/plain で送るのは、ブラウザの事前確認（プリフライト）を避けるため。
+  async function api(action, payload){
+    if(!token){ await ensureToken(); }
+    if(!token) return { ok:false, error:'サインインしていません' };
+    try{
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action: action, token: token }, payload || {}))
+      });
+      return await res.json();
+    }catch(e){
+      return { ok:false, error:'保管サーバにつながりません（' + e + '）' };
+    }
+  }
+
+  function itemRow(v){
+    return {'仕入先':v.s||'', '区分':v.g||'', '品番':v.c||'', '品名':v.n||'', 'サイズ':v.z||'',
+      '色':v.k||'', '形態':v.f||'', '単位':v.u||'', '単価':(v.p==null?'':v.p), '通貨':v.cu||'JPY',
+      '単価の時点':v.d||'', '出典':v.src||'', '頻度':0, '登録者':v.by||''};
+  }
+  function supRow(v){
+    return {'仕入先':v.n||'', '正式名称':v.full||'', '既定の送信':v.send||'mail', 'メール':v.mail||'',
+      'CC':v.cc||'', 'FAX番号':v.fax||'', '明細列':(v.cols||[]).join(',')};
+  }
+
+  async function saveDoc(coll, id, value){
+    let r = null;
+    if(coll === 'orders')                r = await api('putOrder',    { order: Object.assign({}, value, {id: id}) });
+    else if(coll === 'items_custom' || coll === 'price_updates')
+                                         r = await api('addItem',     { row: itemRow(value) });
+    else if(coll === 'suppliers_custom') r = await api('putSupplier', { row: supRow(value) });
+    else if(coll === 'staff_custom')     r = await api('putStaff',    { row: {'イニシャル': value.i, '氏名': value.n} });
+    else if(coll === 'settings'){
+      const pairs = [['useApproval', value.useApproval ? 'TRUE' : 'FALSE'],
+                     ['approver',    value.approver || ''],
+                     ['threshold',   value.threshold || 0],
+                     ['fromAddr',    value.fromAddr || ''],
+                     ['teamsWebhook',value.chatId || '']];
+      for(let i = 0; i < pairs.length; i++){
+        r = await api('putSetting', { key: pairs[i][0], value: pairs[i][1] });
+        if(!r || !r.ok) break;
+      }
+    }
+    if(r && r.ok){ await loadAll(); return true; }
+    banner((r && r.error) ? ('保存できませんでした：' + r.error) : '保存できませんでした。');
+    return false;
+  }
+
+  async function delStaff(initial){
+    const r = await api('deleteStaff', { initial: initial });
+    if(r && r.ok){ await loadAll(); return true; }
+    banner((r && r.error) || '削除できませんでした。');
+    return false;
+  }
+
+  // ---------- Teams 通知（保管サーバ経由でワークフローへ）----------
+  async function notify(text){
+    const r = await api('notify', { text: text });
+    return !!(r && r.sent);
+  }
+
+  // ---------- 保管サーバから全部読み直す ----------
+  let loading = false;
+  async function loadAll(){
+    if(loading) return false;
+    loading = true;
+    try{
+      const r = await api('all');
+      if(!r || !r.ok){ banner((r && r.error) || '保管サーバを読めませんでした。'); return false; }
+      M = { items: r.items || [], suppliers: r.suppliers || [], staff: r.staff || [] };
+      orders = r.orders || [];
+      const t = r.settings || {};
+      settings = {
+        kind: 'approval',
+        useApproval: String(t.useApproval).toUpperCase() !== 'FALSE' && t.useApproval !== false,
+        approver: t.approver || 'KO',
+        threshold: Number(t.threshold) || 0,
+        chatId: t.teamsWebhook || '',
+        chatName: '',
+        fromAddr: t.fromAddr || 'fishing2@linesystem.jp'
+      };
+      banner('');
+      refreshStaffSelects();
+      applySettings();
+      renderAll(); renderMaster(); refreshItemList(); renderSuppliers(); renderStaff();
+      return true;
+    } finally { loading = false; }
+  }
+
+  async function boot(){
+    banner('読み込み中…');
+    const t = await ensureToken();
+    if(!t) return;                       // サインインへ飛んだときはここで終わり
+    const ok = await loadAll();
+    if(ok && account){
+      el('whoami').textContent = (account.name || account.username || '') + '　版 ' + APP_VER;
+    }
+    // ほかの人の登録を拾うため、30秒ごとに読み直す
+    setInterval(function(){ if(!document.hidden) loadAll(); }, 30000);
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) loadAll(); });
+  }
+
+  // ---------- masters ----------
+  // 同じ略称は後勝ち（画面で編集した仕入先が既定を上書きする）
+  // 同じイニシャルは後勝ち（画面で追加した担当者が既定を上書きする）
+  function staffList(){
+    const m = new Map();
+    M.staff.concat(customStaff).forEach(s => { if(s && s.i) m.set(s.i, Object.assign({}, m.get(s.i) || {}, s)); });
+    return [...m.values()].filter(s => !s.deleted);
+  }
+  function meStaff(){ return staffList().find(s=>s.i===el('me').value) || staffList()[0] || {i:'',n:''}; }
+
+  function suppliers(){
+    const m = new Map();
+    M.suppliers.concat(customSups).forEach(s => m.set(s.n, Object.assign({}, m.get(s.n) || {}, s)));
+    return [...m.values()];
+  }
+  const itemKey = i => [i.s, (i.c||'').trim() || (i.n||'').trim(), (i.z||'').trim()].join('|');
+  // 同じ品目に複数の記録があるときは、単価の日付が一番新しいものを使う
+  function allItems(){
+    const merged = new Map();
+    const feed = list => list.forEach(i => {
+      const k = itemKey(i);
+      const prev = merged.get(k);
+      if(!prev){ merged.set(k, Object.assign({}, i)); return; }
+      const newer = String(i.d||'') > String(prev.d||'');
+      const target = Object.assign({}, prev);
+      ['c','n','z','k','f','u'].forEach(f => { if(!target[f] && i[f]) target[f] = i[f]; });
+      if(newer && i.p != null){
+        target.p = i.p; target.cu = i.cu || target.cu; target.d = i.d; target.src = i.src;
+        target.by = i.by || '';
+      }
+      if(i.tmp) target.tmp = true;
+      merged.set(k, target);
+    });
+    feed(M.items);
+    feed(customItems);
+    feed(priceUpdates);
+    return [...merged.values()];
+  }
+  function historyFor(hit){
+    const k = itemKey(hit);
+    return M.items.concat(customItems, priceUpdates)
+      .filter(i => itemKey(i) === k && i.p != null)
+      .sort((a,b) => String(b.d||'').localeCompare(String(a.d||'')));
+  }
+
+  function fillSelect(sel, values, current){
+    sel.innerHTML = values.map(v => `<option value="${esc(v.v)}"${v.v===current?' selected':''}>${esc(v.t)}</option>`).join('');
+  }
+
+  // ---------- new order ----------
+  let lines = [];
+  const COLS = [
+    {k:'code', t:'品番', w:'110px'},
+    {k:'name', t:'品名', w:'300px'},
+    {k:'size', t:'サイズ・号数', w:'110px', opt:'size'},
+    {k:'color', t:'色', w:'100px', opt:'color'},
+    {k:'form', t:'形態', w:'90px', opt:'form'},
+    {k:'pack', t:'荷姿', w:'100px'},
+    {k:'qty', t:'数量', w:'80px', num:true},
+    {k:'unit', t:'単位', w:'70px'},
+    {k:'price', t:'単価', w:'90px', num:true},
+    {k:'cur', t:'通貨', w:'80px'},
+    {k:'due', t:'納期・着指定', w:'110px'}
+  ];
+  function activeCols(){
+    const sup = suppliers().find(s => s.n === el('f-sup').value);
+    const on = (sup && sup.cols) || ['size','color','form'];
+    return COLS.filter(c => !c.opt || on.includes(c.opt));
+  }
+  function blankLine(){
+    const sup = suppliers().find(s => s.n === el('f-sup').value);
+    return {code:'',name:'',size:'',color:'',form:'',pack:'',qty:'',unit:'',price:'',cur:(sup&&sup.cur)||'JPY',due:'',register:false};
+  }
+  function renderLines(){
+    const cols = activeCols();
+    el('lineHead').innerHTML = cols.map(c=>`<th${c.num?' class="num"':''} style="min-width:${c.w}">${c.t}</th>`).join('')
+      + '<th style="min-width:56px">登録</th><th class="num" style="min-width:90px">金額</th><th></th>';
+    el('lineBody').innerHTML = lines.map((ln,i)=>{
+      const cells = cols.map(c=>{
+        if(c.k==='cur') return `<td><select data-i="${i}" data-k="cur"><option value="JPY"${ln.cur==='JPY'?' selected':''}>円</option><option value="USD"${ln.cur==='USD'?' selected':''}>US$</option></select></td>`;
+        const list = c.k==='code' ? ' list="codeList"' : c.k==='name' ? ' list="nameList"'
+          : c.k==='size' ? ' list="sizeList"' : '';
+        const full = (c.k==='name' && ln.name && ln.name.length > 16)
+          ? `<div class="tiny muted" style="margin-top:3px;white-space:normal">${esc(ln.name)}</div>` : '';
+        return `<td><input data-i="${i}" data-k="${c.k}"${list} value="${esc(ln[c.k])}"${c.k==='name'?` title="${esc(ln.name)}"`:''}${c.num?' inputmode="decimal" class="num"':''}>${full}</td>`;
+      }).join('');
+      const amt = lineAmount(ln);
+      return `<tr>${cells}
+        <td style="text-align:center"><input type="checkbox" data-i="${i}" data-k="register" ${ln.register?'checked':''} style="width:auto" title="マスタに仮登録する"></td>
+        <td class="num">${ln.cur==='USD' ? (amt?('US$'+amt.toLocaleString('ja-JP')):'—') : yen(amt)}</td>
+        <td><button class="btn quiet small" data-del="${i}">削除</button></td></tr>`;
+    }).join('');
+    totals();
+  }
+  function lineAmount(ln){
+    const q = parseFloat(ln.qty), p = parseFloat(ln.price);
+    if(isNaN(q)||isNaN(p)) return null;
+    return Math.round(q*p*100)/100;
+  }
+  function totals(){
+    let qty=0, net=0;
+    lines.forEach(ln=>{
+      const q=parseFloat(ln.qty); if(!isNaN(q)) qty+=q;
+      const a=lineAmount(ln); if(a!=null && ln.cur!=='USD') net+=a;
+    });
+    const tax = Math.floor(net*0.1);
+    el('totQty').textContent = numf(qty);
+    el('totNet').textContent = yen(net);
+    el('totTax').textContent = yen(tax);
+    el('totGross').textContent = yen(net+tax);
+  }
+  function refreshItemList(){
+    const pool = supItems();
+    const codes = [], names = new Set(), sizes = new Set();
+    pool.forEach(i=>{
+      if(i.c) codes.push(`<option value="${esc(i.c)}">${esc([i.n,i.z,i.k].filter(Boolean).join(' / '))}</option>`);
+      names.add(i.n);
+      if(i.z) sizes.add(i.z);
+    });
+    el('codeList').innerHTML = codes.slice(0,1200).join('');
+    el('nameList').innerHTML = [...names].slice(0,1200).map(n=>`<option value="${esc(n)}"></option>`).join('');
+    el('sizeList').innerHTML = [...sizes].slice(0,300).map(z=>`<option value="${esc(z)}"></option>`).join('');
+  }
+  const norm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,'');
+  // 同じ品番・同じ品名サイズに複数の出典があると単価が食い違うので、候補を全部返す
+  function priceOptions(hit){
+    const pool = M.items.concat(customItems, priceUpdates).filter(i => i.s === hit.s && i.p != null && (
+      (hit.c && norm(i.c) === norm(hit.c)) || (norm(i.n) === norm(hit.n) && norm(i.z) === norm(hit.z))));
+    const seen = new Set(), out = [];
+    pool.sort((a,b)=> String(b.d||'').localeCompare(String(a.d||'')) || ((a.r||9)-(b.r||9))).forEach(i=>{
+      const k = String(i.p);
+      if(seen.has(k)) return;
+      seen.add(k); out.push(i);
+    });
+    return out.slice(0,3);
+  }
+  // 品番・品名・サイズのどれを触っても、残りを埋める
+  function autofill(i, key){
+    const ln = lines[i];
+    const pool = supItems();
+    let hit = null;
+    if(key==='code' && norm(ln.code)){
+      hit = pool.find(it => norm(it.c) === norm(ln.code));
+    }
+    if(!hit && norm(ln.name)){
+      const byName = pool.filter(it => norm(it.n) === norm(ln.name));
+      if(byName.length === 1) hit = byName[0];
+      else if(byName.length > 1){
+        hit = norm(ln.size) ? byName.find(it => norm(it.z) === norm(ln.size)) : null;
+        if(!hit && key!=='size'){
+          el('lineHint').textContent = `${ln.name}は${byName.length}サイズあります。サイズを入れると品番と単価が入ります。`;
+        }
+      }
+    }
+    if(!hit && norm(ln.code)){
+      const p = pool.filter(it => norm(it.c).startsWith(norm(ln.code)));
+      if(p.length === 1) hit = p[0];
+    }
+    if(!hit && norm(ln.name).length >= 3){
+      let c = pool.filter(it => norm(it.n).includes(norm(ln.name)));
+      if(norm(ln.size)) c = c.filter(it => norm(it.z) === norm(ln.size) || norm(it.n).includes(norm(ln.size)));
+      if(c.length === 1) hit = c[0];
+      else if(c.length > 1 && norm(ln.size)) hit = c[0];
+      else if(c.length > 1 && key !== 'size'){
+        el('lineHint').textContent = `候補が${c.length}件あります。サイズを入れると決まります。`;
+      }
+    }
+    if(!hit) return;
+    const alts = priceOptions(hit);
+    ln.code = hit.c || ln.code;
+    ln.name = hit.n;
+    if(hit.z) ln.size = hit.z;
+    if(hit.k) ln.color = hit.k;
+    if(hit.f) ln.form = hit.f;
+    if(hit.u) ln.unit = hit.u;
+    if(ln.price === '' && hit.p != null) ln.price = hit.p;
+    if(hit.cu === 'USD') ln.cur = 'USD';
+    el('lineHint').innerHTML = `${esc(hit.n)}${hit.z?' '+esc(hit.z):''}　記録にある単価：`
+      + alts.map(a=>`<button class="btn quiet small" data-setprice="${i}:${a.p}" style="margin:0 3px">${a.cu==='USD'?'US$':'¥'}${numf(a.p)}<span class="muted"> ${esc(jdate(a.d)||'時点不明')} ${esc(a.src)}</span></button>`).join('')
+      + (alts.length>1 ? ' <span class="muted">← 出典で違います。使う単価を選んでください。</span>' : '');
+  }
+
+  // ---------- まとめて入力 ----------
+  let gridItems = [];
+  function supItems(){
+    const sup = el('f-sup').value;
+    return allItems().filter(i => i.s === sup);
+  }
+  const CATS = ['YGK商品','バルク','巻き','資材','針・金具','ウキ材','それ以外'];
+  let cat = '';
+  function renderCats(){
+    const counts = {};
+    supItems().forEach(i => { counts[i.g||'それ以外'] = (counts[i.g||'それ以外']||0)+1; });
+    el('catRow').innerHTML = [{v:'',t:'すべて',n:supItems().length}]
+      .concat(CATS.filter(c=>counts[c]).map(c=>({v:c,t:c,n:counts[c]})))
+      .map(c=>`<button class="btn ${c.v===cat?'':'quiet'} small" data-cat="${esc(c.v)}">${esc(c.t)} <span class="${c.v===cat?'':'muted'}">${c.n}</span></button>`)
+      .join('');
+  }
+  function renderGroups(){
+    const q = (el('g-q').value||'').trim();
+    const counts = new Map();
+    supItems().forEach(i => {
+      if(cat && (i.g||'それ以外') !== cat) return;
+      if(q && !(i.n+' '+i.c+' '+i.z).includes(q)) return;
+      counts.set(i.n, (counts.get(i.n)||0) + 1);
+    });
+    const all = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
+    const groups = all.slice(0, 30);
+    el('groupList').innerHTML = (groups.length
+      ? groups.map(([n,c])=>`<button class="btn quiet small" data-grp="${esc(n)}">${esc(n)} <span class="muted">${c}</span></button>`).join('')
+      : '<span class="tiny muted">この区分に候補がありません。明細に直接入力してください。</span>')
+      + (all.length > groups.length ? `<span class="tiny muted">　ほか${all.length-groups.length}件。商品名で絞ってください。</span>` : '');
+  }
+  function openGroup(name){
+    gridItems = supItems().filter(i => i.n === name)
+      .sort((a,b)=> String(a.z).localeCompare(String(b.z), 'ja', {numeric:true}));
+    el('gridTitle').textContent = name;
+    el('gridCount').textContent = `${gridItems.length}件`;
+    el('gridBody').innerHTML = gridItems.map((i,ix)=>`<tr>
+      <td>${esc(i.c)}</td><td>${esc(i.z)}</td><td>${esc(i.k)}</td><td>${esc(i.f)}</td>
+      <td class="num">${i.p==null?'—':(i.cu==='USD'?'US$':'¥')+numf(i.p)}<br><span class="tiny muted">${esc(i.src)}</span></td><td>${esc(i.u)}</td>
+      <td class="num"><input inputmode="decimal" data-gq="${ix}" class="num" style="width:100px"></td></tr>`).join('');
+    el('gridWrap').hidden = false;
+  }
+  function addGridToLines(){
+    let added = 0;
+    gridItems.forEach((i,ix)=>{
+      const v = document.querySelector(`[data-gq="${ix}"]`);
+      const q = v && parseFloat(v.value);
+      if(!q) return;
+      lines.push({code:i.c, name:i.n, size:i.z, color:i.k, form:i.f, pack:'', qty:q,
+        unit:i.u, price:(i.p==null?'':i.p), cur:i.cu||'JPY', due:'', register:false});
+      added++;
+      v.value = '';
+    });
+    lines = lines.filter(l => l.name || l.qty);
+    if(!lines.length) lines = [blankLine()];
+    renderLines();
+    el('gridCount').textContent = added ? `${added}件を明細に追加しました` : '数量が入っていません';
+  }
+  function renderPrevOrders(){
+    const sup = el('f-sup').value;
+    const mine = orders.filter(o=>o.supplier===sup).sort((a,b)=>(b.no||'').localeCompare(a.no||'')).slice(0,8);
+    el('g-prev').innerHTML = '<option value="">前回の注文から複製…</option>' +
+      mine.map(o=>`<option value="${esc(o.id)}">${esc(o.no)}　${esc(o.date)}　${o.lines.length}明細</option>`).join('');
+  }
+  function copyOrder(id){
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    lines = o.lines.map(l=>({code:l.code, name:l.name, size:l.size, color:l.color, form:l.form, pack:l.pack,
+      qty:l.qty, unit:l.unit, price:(l.priceFixed ?? l.price ?? ''), cur:l.cur||'JPY', due:'', register:false}));
+    renderLines();
+    el('lineHint').textContent = `${o.no} の明細を複製しました。数量を直してください。`;
+  }
+  function addPasted(){
+    const rows = (el('pasteArea').value||'').split(/\r?\n/).map(r=>r.trim()).filter(Boolean);
+    const pool = supItems();
+    let ok = 0, miss = 0;
+    rows.forEach(r=>{
+      const parts = r.split(/\t|,|\s{2,}/).map(s=>s.trim()).filter(s=>s!=='');
+      if(!parts.length) return;
+      const key = parts[0], qty = parseFloat(parts[1]), price = parts[2] ? parseFloat(parts[2]) : null;
+      const hit = pool.find(i => i.c === key) || pool.find(i => i.n === key)
+        || pool.find(i => (i.c && key.startsWith(i.c)) || i.n.includes(key));
+      if(hit){
+        lines.push({code:hit.c, name:hit.n, size:hit.z, color:hit.k, form:hit.f, pack:'',
+          qty: isNaN(qty)?'':qty, unit:hit.u, price: price ?? (hit.p==null?'':hit.p), cur:hit.cu||'JPY', due:'', register:false});
+        ok++;
+      } else {
+        lines.push({code:'', name:key, size:'', color:'', form:'', pack:'', qty:isNaN(qty)?'':qty,
+          unit:'', price: price ?? '', cur:'JPY', due:'', register:true});
+        miss++;
+      }
+    });
+    lines = lines.filter(l => l.name || l.qty);
+    if(!lines.length) lines = [blankLine()];
+    renderLines();
+    el('pasteMsg').textContent = `${ok}件はマスタと一致、${miss}件は新規として追加しました。`;
+    el('pasteArea').value = '';
+  }
+
+  // 納入先：指定倉庫やその他は名称を足して1行にする
+  function deliverTo(){
+    const base = el('f-to').value;
+    const extra = (el('f-to2').value || '').trim();
+    if(base === 'その他') return extra || 'その他';
+    return extra ? `${base}　${extra}` : base;
+  }
+  function syncToDetail(){
+    const need = ['指定倉庫','その他','内職先'].includes(el('f-to').value);
+    el('toDetailWrap').hidden = !need;
+  }
+
+  function nextNo(staffInitial){
+    const yy = String(new Date().getFullYear()).slice(2);
+    // 9000番台は試験・番外の枠として採番に数えない（本番の通し番号を汚さないため）
+    const used = orders.filter(o => (o.no||'').startsWith('LS'+yy)).map(o => parseInt((o.no||'').split('-')[1],10)).filter(n=>!isNaN(n) && n < 9000);
+    const seq = (used.length ? Math.max.apply(null, used) : 0) + 1;
+    return 'LS'+yy+'-'+String(seq).padStart(4,'0')+'-'+staffInitial;
+  }
+
+  async function saveOrder(){
+    if(!lines.some(l => l.name && l.qty)){ el('saveMsg').textContent='品名と数量が入った行がありません。'; return; }
+    const staff = meStaff();
+    const id = 'o'+Date.now().toString(36);
+    const order = {
+      id, no: nextNo(staff.i), date: el('f-date').value || today(),
+      staff: staff.n, staffInitial: staff.i, supplier: el('f-sup').value,
+      due: el('f-due').value, to: deliverTo(), packing: el('f-pack').value, note: el('f-note').value,
+      subNo: el('f-subno').value.trim(), memo: el('f-memo').value.trim(),
+      status:'sent', createdAt: new Date().toISOString(),
+      approver: settings.useApproval ? (staffList().find(s=>s.i===settings.approver)||{}).n : '',
+      lines: lines.filter(l=>l.name).map((l,idx)=>({
+        no: idx+1, code:l.code, name:l.name, size:l.size, color:l.color, form:l.form, pack:l.pack,
+        qty: parseFloat(l.qty)||0, unit:l.unit, price: l.price===''?null:parseFloat(l.price),
+        priceFixed: l.price===''?null:parseFloat(l.price), cur:l.cur, due:l.due,
+        recv: [], closed:false, priceLog: []
+      }))
+    };
+    if(needsApproval(order)){
+      order.status = 'pending';
+      order.requestedAt = new Date().toISOString();
+    }
+    const ok = await saveDoc('orders', id, order);
+    if(ok && order.status === 'pending'){
+      const t = orderTotals(order);
+      const sent = await notify(`🔔 承認をお願いします：${order.no}（${order.supplier}・${yen(t.gross)}・${order.lines.length}明細）発注者 ${order.staff}`);
+      el('saveMsg').textContent = `${order.no} を承認待ちにしました。` + (sent ? 'Teamsに通知しました。' : '');
+    } else {
+      el('saveMsg').textContent = ok ? `${order.no} で登録しました。` : '保存できませんでした（閲覧のみの可能性があります）。';
+    }
+    if(ok){
+      // 仮登録にチェックの入った行を品目マスタへ
+      for(const l of lines.filter(x=>x.register && x.name)){
+        const item = {s:el('f-sup').value, c:l.code||('TMP-'+Date.now().toString(36).slice(-4)), n:l.name,
+          z:l.size, k:l.color, f:l.form, u:l.unit, p:l.price===''?null:parseFloat(l.price), cu:l.cur, src:'仮登録', tmp:true};
+        await saveDoc('items_custom','i'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), item);
+      }
+      showSheet(order);
+      lines = [blankLine()];
+      renderLines(); renderAll();
+    }
+  }
+
+  // ブラウザに普通にダウンロードさせる
+  function saveFile(filename, data, mime){
+    const blob = (data instanceof Blob) ? data : new Blob([data], {type: mime || 'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }
+
+  // ---------- 注文書プレビュー ----------
+  function currentDraft(){
+    const staff = meStaff();
+    return {no:'（登録時に採番）', date: el('f-date').value||today(), staff: staff.n, supplier: el('f-sup').value,
+      due: el('f-due').value, to: deliverTo(), packing: el('f-pack').value, note: el('f-note').value,
+      lines: lines.filter(l=>l.name).map((l,i)=>({no:i+1,...l, qty: parseFloat(l.qty)||0, price: l.price===''?null:parseFloat(l.price)}))};
+  }
+  let shownOrder = null;                        // いま画面に出ている注文書
+  function sheetOrder(){ return shownOrder || currentDraft(); }
+  function showSheet(o){
+    shownOrder = o;
+    const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
+    let net = 0;
+    const rows = o.lines.map(l=>{
+      const amt = (l.qty!=null && l.price!=null) ? l.qty*l.price : null;
+      if(amt!=null && l.cur!=='USD') net += amt;
+      return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join(' '))}</td>
+        <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
+        <td style="text-align:right">${l.price==null?'—':(l.cur==='USD'?'US$':'')+numf(l.price)}</td>
+        <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td></tr>`;
+    }).join('');
+    const tax = Math.floor(net*0.1);
+    el('sheet').innerHTML = `
+      <h4>注文書</h4>
+      <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:26px;font-weight:700">${esc(sup.full||o.supplier)}　御中</div>
+          <div style="margin-top:8px">注文番号 : ${esc(o.no)}</div>
+          <div>納期 : ${esc(o.due||'納期ご連絡願います。')}</div>
+          <div>納入先 : ${esc(o.to)}</div>
+          <div>梱包 : ${esc(o.packing)}</div>
+        </div>
+        <div class="co">
+          <div>${esc(jdate(o.date))}</div>
+          <div style="font-weight:700">㈱ラインシステム</div>
+          <div>〒630-8453 奈良市西九条町2-5-10</div>
+          <div>TEL : 0742-64-7555</div>
+          <div>FAX : 0742-64-7556</div>
+          <div style="margin-top:6px">発注者 : ${esc(o.staff)}</div>
+        </div>
+      </div>
+      <p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>
+      ${o.note?`<p style="font-weight:700;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:''}
+      <table style="margin-top:8px"><thead><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th><th style="text-align:right">数量</th><th>単位</th><th style="text-align:right">単価</th><th style="text-align:right">金額</th></tr></thead><tbody>${rows}</tbody></table>
+      <div style="display:flex;justify-content:flex-end;gap:18px;margin-top:10px">
+        <div style="text-align:right">
+          <div>税抜小計 ${yen(net)}</div>
+          <div>消費税 10% ${yen(tax)}</div>
+          <div style="border:2px solid #111;padding:6px 12px;margin-top:6px;font-weight:700;font-size:25px">税込合計 ${yen(net+tax)}</div>
+        </div>
+      </div>
+      <p style="margin-top:12px;text-align:center">納品書及び送り状に発注者名を明記してください。</p>`;
+    el('previewCard').hidden = false;
+  }
+  function mailParts(o){
+    const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
+    const body = o.lines.map(l=>`・${l.code?l.code+' ':''}${l.name} ${[l.size,l.color,l.form].filter(Boolean).join(' ')} ${numf(l.qty)}${l.unit||''}`).join('\n');
+    return {
+      to: sup.mail || '',
+      cc: sup.cc || '',
+      subject: `【発注】${o.no} 株式会社ラインシステム`,
+      body: `${sup.full||o.supplier} ご担当者様\n\nいつもお世話になっております。株式会社ラインシステムの${o.staff}です。\n下記の通り発注いたします。注文書を添付いたしますのでご確認ください。\n\n注文番号：${o.no}\n希望納期：${o.due||'ご連絡願います'}\n納入先：${o.to}\n\n${body}\n\n何卒よろしくお願いいたします。\n株式会社ラインシステム ${o.staff}\nTEL 0742-64-7555 / FAX 0742-64-7556`
+    };
+  }
+  function mailText(o){ const m = mailParts(o); return `件名：${m.subject}\n\n${m.body}`; }
+
+  // ---------- list ----------
+  function orderTotals(o){
+    let net=0, usd=0, unknown=0;
+    o.lines.forEach(l=>{
+      const p = l.priceFixed ?? l.price;
+      if(p==null){ unknown++; return; }
+      const amt = (l.qty||0)*p;
+      if(l.cur==='USD') usd+=amt; else net+=amt;
+    });
+    return {net, tax:Math.floor(net*0.1), gross:net+Math.floor(net*0.1), usd, unknown};
+  }
+  function remaining(l){
+    const got = (l.recv||[]).reduce((a,r)=>a+(r.q||0),0);
+    return {got, rest: Math.max(0,(l.qty||0)-got), over: Math.max(0, got-(l.qty||0))};
+  }
+  function orderStatus(o){
+    const open = o.lines.some(l => !l.closed && remaining(l).rest > 0);
+    return open ? 'open' : 'done';
+  }
+  function renderList(){
+    const fs = el('l-staff').value, fsup = el('l-sup').value, fst = el('l-status').value;
+    const q = (el('l-q').value||'').trim().toLowerCase();
+    const hit = o => !q || [o.no, o.subNo, o.memo, o.supplier, o.staff]
+      .concat((o.lines||[]).map(l=>l.name)).join(' ').toLowerCase().includes(q);
+    const rows = orders
+      .filter(o => (!fs||o.staffInitial===fs) && (!fsup||o.supplier===fsup) && (!fst||orderStatus(o)===fst) && hit(o))
+      .sort((a,b)=> (b.no||'').localeCompare(a.no||''));
+    el('listEmpty').hidden = rows.length>0;
+    el('listBody').innerHTML = rows.map(o=>{
+      const t = orderTotals(o), st = orderStatus(o);
+      return `<tr><td>${esc(o.no)}</td><td>${esc(o.subNo||'')}</td><td>${esc(jdate(o.date))}</td><td>${esc(o.staff)}</td><td>${esc(o.supplier)}</td>
+        <td class="tiny muted">${esc(o.memo||'')}</td>
+        <td class="num">${o.lines.length}</td><td class="num">${yen(t.gross)}${t.usd?` <span class="tiny muted">+US$${numf(Math.round(t.usd))}</span>`:''}</td>
+        <td>${o.status==='pending'?'<span class="pill warn">承認待ち</span>':o.status==='rejected'?'<span class="pill bad">差し戻し</span>':
+          (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}</td>
+        <td><button class="btn quiet small" data-open="${esc(o.id)}">開く</button></td></tr>`;
+    }).join('');
+  }
+  function renderDetail(id){
+    const o = orders.find(x=>x.id===id);
+    if(!o){ el('detailCard').hidden = true; return; }
+    const t = orderTotals(o);
+    el('detail').innerHTML = `<div class="row"><h2 style="margin:0">${esc(o.no)}　${esc(o.supplier)}</h2>
+        <span class="tiny muted">${esc(jdate(o.date))}／${esc(o.staff)}／納入先 ${esc(o.to)}</span>
+        <button class="btn quiet small right" id="sheetBtn">注文書を見る</button></div>
+      <div class="row" style="margin-top:10px;align-items:flex-end">
+        <label class="field" style="max-width:200px"><span>副発注No.（先方の番号）</span>
+          <input id="d-subno" value="${esc(o.subNo||'')}" placeholder="例 G210039"></label>
+        <label class="field" style="max-width:320px"><span>社内メモ（注文書には出ません）</span>
+          <input id="d-memo" value="${esc(o.memo||'')}" placeholder="例 OEM向け"></label>
+        <button class="btn quiet small" data-savemeta="${esc(o.id)}">この2つを保存</button>
+        <span class="tiny muted" id="d-msg"></span>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
+      ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;
+        return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join(' '))}</td>
+        <td class="num">${numf(l.qty)}${esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
+        <td class="num">${l.closed?'<span class="pill">打切り</span>':(r.over?`<span class="pill warn">+${numf(r.over)}</span>`:numf(r.rest))}</td>
+        <td class="num">${p==null?'<span class="pill bad">未定</span>':(l.cur==='USD'?'US$':'¥')+numf(p)}${(l.priceLog||[]).length?' <span class="pill warn">訂正あり</span>':''}</td>
+        <td>${l.closed?'打切り':(r.rest===0?'完了':(r.got?'一部入荷':'未入荷'))}</td></tr>`;}).join('')}
+      </tbody></table></div>
+      <div class="row" style="margin-top:10px"><span class="tiny muted">税抜 ${yen(t.net)}／消費税 ${yen(t.tax)}／税込 ${yen(t.gross)}${t.usd?`／US$${numf(Math.round(t.usd))}`:''}</span></div>`;
+    el('detailCard').hidden = false;
+    el('sheetBtn').onclick = ()=>{ showSheet(o); switchTab('new'); window.scrollTo({top:document.body.scrollHeight}); };
+  }
+
+  // ---------- receiving ----------
+  function renderRecv(){
+    const late = el('lateOnly').checked;
+    const rows = [];
+    orders.forEach(o => o.lines.forEach(l => {
+      const r = remaining(l);
+      if(l.closed || r.rest<=0) return;
+      if(late && !(l.due && l.due < today())) return;
+      rows.push({o,l,r});
+    }));
+    el('recvBody').innerHTML = rows.map(({o,l,r})=>`
+      <tr><td>${esc(o.no)}</td><td>${esc(o.supplier)}</td><td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
+      <td class="num">${numf(l.qty)}${esc(l.unit)}</td><td class="num">${numf(r.got)}</td><td class="num">${numf(r.rest)}</td>
+      <td>${l.due?`<span class="${l.due<today()?'pill bad':'tiny'}">${esc(jdate(l.due))}</span>`:'<span class="tiny muted">—</span>'}</td>
+      <td><div class="row" style="gap:4px">
+        <input type="date" style="width:140px" data-rd="${esc(o.id)}:${l.no}" value="${today()}">
+        <input inputmode="decimal" style="width:80px" placeholder="数量" data-rq="${esc(o.id)}:${l.no}" value="${r.rest}">
+        ${l.cur==='USD'?`<input inputmode="decimal" style="width:80px" placeholder="レート" data-rr="${esc(o.id)}:${l.no}">`:''}
+        <button class="btn small" data-rsave="${esc(o.id)}:${l.no}">登録</button>
+        <button class="btn quiet small" data-rclose="${esc(o.id)}:${l.no}">打切り</button>
+      </div></td></tr>`).join('') || '<tr><td colspan="8" class="muted tiny">未入荷の明細はありません。</td></tr>';
+  }
+  async function saveReceipt(key, close){
+    const [id, no] = key.split(':');
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    const l = o.lines.find(x=>String(x.no)===no); if(!l) return;
+    if(close){ l.closed = true; }
+    else{
+      const q = parseFloat(document.querySelector(`[data-rq="${key}"]`).value);
+      const d = document.querySelector(`[data-rd="${key}"]`).value || today();
+      const rateEl = document.querySelector(`[data-rr="${key}"]`);
+      if(isNaN(q) || q===0) return;
+      l.recv = (l.recv||[]).concat([{d, q, rate: rateEl && rateEl.value ? parseFloat(rateEl.value) : null,
+        by: meStaff().n }]);
+    }
+    o.updatedAt = new Date().toISOString();
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok) el('storeBanner').hidden = false;
+    renderAll();
+  }
+
+  // ---------- summary ----------
+  function renderSummary(){
+    const pay = {}, staffAgg = {}, supAgg = {};
+    orders.forEach(o=>{
+      const t = orderTotals(o);
+      staffAgg[o.staff] = staffAgg[o.staff] || {n:0, v:0};
+      staffAgg[o.staff].n++; staffAgg[o.staff].v += t.gross;
+      supAgg[o.supplier] = supAgg[o.supplier] || {n:0, v:0};
+      supAgg[o.supplier].n++; supAgg[o.supplier].v += t.gross;
+      o.lines.forEach(l=>{
+        const p = l.priceFixed ?? l.price;
+        (l.recv||[]).forEach(r=>{
+          const d = new Date(r.d+'T00:00:00');
+          d.setMonth(d.getMonth()+1);
+          const key = d.toISOString().slice(0,7) + '|' + o.supplier;
+          pay[key] = pay[key] || {net:0, unknown:0};
+          if(p==null || (l.cur==='USD' && !r.rate)) { pay[key].unknown++; return; }
+          const amt = l.cur==='USD' ? r.q*p*r.rate : r.q*p;
+          pay[key].net += amt;
+        });
+      });
+    });
+    const keys = Object.keys(pay).sort();
+    el('payBody').innerHTML = keys.map(k=>{
+      const [m, sup] = k.split('|'); const v = pay[k];
+      const tax = Math.floor(v.net*0.1);
+      return `<tr><td>${esc(jdate(m))}</td><td>${esc(sup)}</td><td class="num">${yen(v.net)}</td>
+        <td class="num">${yen(tax)}</td><td class="num">${yen(v.net+tax)}</td>
+        <td class="num">${v.unknown?`<span class="pill bad">${v.unknown}行</span>`:'—'}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="muted tiny">入荷を登録すると支払予定が出ます。</td></tr>';
+    const agg = obj => Object.keys(obj).sort((a,b)=>obj[b].v-obj[a].v).map(k=>
+      `<tr><td>${esc(k)}</td><td class="num">${obj[k].n}件</td><td class="num">${yen(obj[k].v)}</td></tr>`).join('')
+      || '<tr><td class="muted tiny">まだありません</td></tr>';
+    el('byStaff').innerHTML = agg(staffAgg);
+    el('bySup').innerHTML = agg(supAgg);
+  }
+
+  // ---------- master ----------
+  function renderMaster(){
+    const q = (el('m-q').value||'').trim();
+    const mc = el('m-cat').value;
+    let pool = allItems();
+    if(mc) pool = pool.filter(i => (i.g||'それ以外') === mc);
+    const rows = (q ? pool.filter(i => (i.n+' '+i.c+' '+i.z).includes(q)) : pool).slice(0, 300);
+    el('masterCount').textContent = `${pool.length.toLocaleString('ja-JP')}件（表示 ${rows.length}件）`;
+    el('masterBody').innerHTML = rows.map(i=>{
+      const k = itemKey(i);
+      const hist = historyFor(i);
+      return `<tr>
+      <td>${esc(i.s)}</td><td class="tiny">${esc(i.g||'')}</td><td>${esc(i.c)}</td><td>${esc(i.n)}</td><td>${esc(i.z)}</td><td>${esc(i.k)}</td><td>${esc(i.f)}</td>
+      <td class="num">${i.p==null?'—':(i.cu==='USD'?'US$':'¥')+numf(i.p)}</td><td>${esc(i.u)}</td>
+      <td class="tiny">${esc(jdate(i.d)||'—')}${hist.length>1?` <button class="btn quiet small" data-hist="${esc(k)}">履歴${hist.length}</button>`:''}</td>
+      <td>${i.tmp?'<span class="pill warn">仮登録</span>':`<span class="tiny muted">${esc(i.src)}</span>`}${i.by?`<br><span class="tiny muted">${esc(i.by)}</span>`:''}</td>
+      <td><div class="row" style="gap:4px">
+        <input inputmode="decimal" placeholder="新単価" style="width:84px" data-np="${esc(k)}">
+        <input type="date" style="width:132px" data-nd="${esc(k)}" value="${today()}">
+        <button class="btn small" data-nsave="${esc(k)}">更新</button>
+      </div></td></tr>`;
+    }).join('');
+  }
+  function renderStaff(){
+    const yy = String(new Date().getFullYear()).slice(2);
+    el('staffBody').innerHTML = staffList().map(s=>{
+      const custom = customStaff.some(c=>c.i===s.i);
+      const used = orders.some(o=>o.staffInitial===s.i);
+      return '<tr>'
+        + '<td><input style="min-width:140px" value="'+esc(s.n||'')+'" data-stn="'+esc(s.i)+'"></td>'
+        + '<td><b>'+esc(s.i)+'</b></td>'
+        + '<td class="tiny muted">LS'+yy+'-0001-'+esc(s.i)+'</td>'
+        + '<td><div class="row" style="gap:4px">'
+        + '<button class="btn quiet small" data-stsave="'+esc(s.i)+'">保存</button>'
+        + ((custom && !used) ? '<button class="btn quiet small" data-stdel="'+esc(s.i)+'">削除</button>' : '')
+        + '</div></td></tr>';
+    }).join('');
+  }
+  function refreshStaffSelects(){
+    const list = staffList();
+    fillSelect(el('me'), list.map(s=>({v:s.i,t:s.n+'（'+s.i+'）'})), el('me').value || 'MI');
+    fillSelect(el('l-staff'), [{v:'',t:'全員'}].concat(list.map(s=>({v:s.i,t:s.n}))), el('l-staff').value);
+    if(el('ap-who')) fillSelect(el('ap-who'), list.map(s=>({v:s.i, t:s.n})), settings.approver || 'KO');
+  }
+
+  function renderSuppliers(){
+    el('supBody').innerHTML = suppliers().map(s=>`<tr><td>${esc(s.n)}</td><td>${esc(s.full||'')}</td>
+      <td>${s.send==='fax'?'FAX':'メール'}</td>
+      <td><div class="row" style="gap:4px"><input style="min-width:180px" value="${esc(s.mail||'')}" placeholder="未登録" data-smail="${esc(s.n)}">
+        <button class="btn quiet small" data-ssave="${esc(s.n)}">保存</button></div></td>
+      <td><input style="min-width:180px" value="${esc(s.cc||'')}" placeholder="なし" data-scc="${esc(s.n)}"></td>
+      <td><input style="min-width:130px" value="${esc(s.fax||'')}" placeholder="未登録" data-sfax="${esc(s.n)}"></td>
+      <td class="tiny muted">${esc((s.cols||[]).map(c=>({size:'サイズ',color:'色',form:'形態'}[c])).join('・')||'—')}</td></tr>`).join('');
+    const opts = suppliers().map(s=>({v:s.n,t:s.n}));
+    const cur = el('f-sup').value;
+    fillSelect(el('f-sup'), opts, cur || opts[0].v);
+    fillSelect(el('l-sup'), [{v:'',t:'すべて'}].concat(opts), el('l-sup').value);
+    fillSelect(el('ni-sup'), opts, el('ni-sup').value || cur || opts[0].v);
+  }
+
+  // ---------- 承認 ----------
+  function applySettings(){
+    el('ap-on').value = settings.useApproval ? 'on' : 'off';
+    el('ap-th').value = settings.threshold || 0;
+    fillSelect(el('ap-who'), staffList().map(s=>({v:s.i, t:s.n})), settings.approver || 'KO');
+    el('ap-chat').value = settings.chatId || '';
+    el('ap-from').value = settings.fromAddr || '';
+  }
+  function needsApproval(order){
+    if(!settings.useApproval) return false;
+    const th = Number(settings.threshold) || 0;
+    return th <= 0 || orderTotals(order).gross > th;
+  }
+  function pendingOrders(){ return orders.filter(o => o.status === 'pending'); }
+  function renderApprovals(){
+    const pend = pendingOrders().sort((a,b)=>(b.no||'').localeCompare(a.no||''));
+    const badge = el('pendBadge');
+    badge.hidden = pend.length === 0;
+    badge.textContent = pend.length;
+    el('ap-count').textContent = pend.length ? `${pend.length}件` : '';
+    el('apBody').innerHTML = pend.map(o=>{
+      const t = orderTotals(o);
+      return `<tr><td>${esc(o.no)}</td><td>${esc(jdate(o.date))}</td><td>${esc(o.staff)}</td><td>${esc(o.supplier)}</td>
+        <td class="num">${o.lines.length}</td><td class="num">${yen(t.gross)}</td>
+        <td class="tiny muted">${esc(jdatetime(o.requestedAt))}</td>
+        <td><div class="row" style="gap:5px">
+          <button class="btn small" data-approve="${esc(o.id)}">承認</button>
+          <button class="btn quiet small" data-reject="${esc(o.id)}">差し戻し</button>
+        </div></td></tr>`;
+    }).join('') || '<tr><td colspan="8" class="muted tiny">承認待ちはありません。</td></tr>';
+
+    const done = orders.filter(o => o.approvedAt || o.rejectedAt)
+      .sort((a,b)=>String(b.approvedAt||b.rejectedAt).localeCompare(String(a.approvedAt||a.rejectedAt))).slice(0,20);
+    el('apLog').innerHTML = done.map(o=>`<tr><td>${esc(o.no)}</td>
+      <td>${o.approvedAt?'<span class="pill ok">承認</span>':'<span class="pill bad">差し戻し</span>'}</td>
+      <td>${esc(o.approvedBy || o.rejectedBy || '')}</td>
+      <td class="tiny">${esc(jdatetime(o.approvedAt||o.rejectedAt))}</td>
+      <td class="tiny muted">${esc(o.rejectReason||'')}</td></tr>`).join('')
+      || '<tr><td colspan="5" class="muted tiny">まだ記録がありません。</td></tr>';
+  }
+  async function decide(id, approve){
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    const me = meStaff();
+    const t = orderTotals(o);
+    if(approve){
+      o.status = 'approved'; o.approvedBy = me.n; o.approvedAt = new Date().toISOString();
+    } else {
+      const why = (el('ap-msg').dataset.why || '').trim();
+      o.status = 'rejected'; o.rejectedBy = me.n; o.rejectedAt = new Date().toISOString();
+      o.rejectReason = why;
+    }
+    const saved = await saveDoc('orders', o.id, o);
+    if(!saved){ el('ap-msg').textContent = '保存できませんでした。画面を開き直して、もう一度試してください。'; return; }
+    const line = approve
+      ? `✅ 発注 ${o.no}（${o.supplier}・${yen(t.gross)}）を ${me.n} が承認しました。${o.staff}さん、送信してください。`
+      : `↩️ 発注 ${o.no}（${o.supplier}・${yen(t.gross)}）を ${me.n} が差し戻しました。${o.staff}さん、内容を見直してください。`;
+    const sent = await notify(line);
+    el('ap-msg').textContent = sent ? 'Teamsに通知しました。' : (settings.chatId ? '通知を送れませんでした。' : '');
+    renderAll();
+  }
+
+  function renderAll(){ renderList(); renderRecv(); renderSummary(); renderMaster(); renderPrevOrders(); renderApprovals(); renderStaff(); }
+
+  // ---------- tabs ----------
+  const TABS = ['new','approve','list','recv','sum','master'];
+  function switchTab(name){
+    TABS.forEach(t=>{
+      el('pane-'+t).hidden = t!==name;
+      el('tab-'+t).setAttribute('aria-selected', String(t===name));
+    });
+    try{ localStorage.setItem('po.tab', name); }catch(e){}
+  }
+
+  // ---------- wiring ----------
+  fillSelect(el('me'), staffList().map(s=>({v:s.i,t:s.n+'（'+s.i+'）'})), 'MI');
+  try{ const saved = localStorage.getItem('po.me'); if(saved) el('me').value = saved; }catch(e){}
+  el('me').onchange = ()=>{ try{ localStorage.setItem('po.me', el('me').value); }catch(e){} };
+  fillSelect(el('l-staff'), [{v:'',t:'全員'}].concat(staffList().map(s=>({v:s.i,t:s.n}))), '');
+  renderSuppliers();
+  renderStaff();
+  el('f-date').value = today();
+  el('f-to').onchange = syncToDetail;
+  syncToDetail();
+  lines = [blankLine(), blankLine()];
+  renderLines(); refreshItemList(); renderCats(); renderGroups();
+
+  TABS.forEach(t => el('tab-'+t).onclick = ()=>switchTab(t));
+  try{ const t = localStorage.getItem('po.tab'); if(t && TABS.includes(t)) switchTab(t); }catch(e){}
+
+  el('f-sup').onchange = ()=>{ refreshItemList(); renderLines(); renderCats(); renderGroups(); renderPrevOrders(); el('gridWrap').hidden = true; };
+  el('g-q').addEventListener('input', renderGroups);
+  el('catRow').addEventListener('click', e=>{
+    const b = e.target.closest('[data-cat]');
+    if(!b) return;
+    cat = b.dataset.cat;
+    renderCats(); renderGroups(); el('gridWrap').hidden = true;
+  });
+  el('groupList').addEventListener('click', e=>{ const g = e.target.closest('[data-grp]'); if(g) openGroup(g.dataset.grp); });
+  el('gridAdd').onclick = addGridToLines;
+  el('g-prev').onchange = e => { if(e.target.value){ copyOrder(e.target.value); e.target.value=''; } };
+  el('pasteBtn').onclick = ()=>{ el('pasteWrap').hidden = !el('pasteWrap').hidden; };
+  el('pasteAdd').onclick = addPasted;
+  el('addLine').onclick = ()=>{ lines.push(blankLine()); renderLines(); };
+  el('addLine10').onclick = ()=>{ for(let n=0;n<10;n++) lines.push(blankLine()); renderLines(); };
+  el('lineBody').addEventListener('input', e=>{
+    const t = e.target, i = t.dataset.i, k = t.dataset.k;
+    if(i==null||!k) return;
+    lines[i][k] = t.type==='checkbox' ? t.checked : t.value;
+    if(k==='name'||k==='code'||k==='size') autofill(i,k);
+    if(['qty','price','cur','name','code','size'].includes(k)){
+      const pos = t.selectionStart;
+      renderLines();
+      const again = document.querySelector(`[data-i="${i}"][data-k="${k}"]`);
+      if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+    } else totals();
+  });
+  el('lineBody').addEventListener('change', e=>{
+    const t = e.target;
+    if(t.dataset.k==='cur'){ lines[t.dataset.i].cur = t.value; renderLines(); }
+    if(t.dataset.k==='register'){ lines[t.dataset.i].register = t.checked; }
+  });
+  el('lineBody').addEventListener('click', e=>{
+    const d = e.target.dataset.del;
+    if(d!=null){ lines.splice(d,1); if(!lines.length) lines=[blankLine()]; renderLines(); }
+  });
+  el('lineHint').addEventListener('click', e=>{
+    const t = e.target.closest('[data-setprice]');
+    if(!t) return;
+    const [i, p] = t.dataset.setprice.split(':');
+    lines[i].price = p;
+    renderLines();
+  });
+  el('saveOrder').onclick = saveOrder;
+  el('previewBtn').onclick = ()=>showSheet(currentDraft());
+  el('openMail').onclick = ()=>{
+    const m = mailParts(sheetOrder());
+    if(!m.to){ el('mailHint').textContent = 'この仕入先のメールアドレスが未登録です。マスタの「仕入先」で登録してください。'; return; }
+    el('mailHint').textContent = `${m.to}${m.cc?`（CC: ${m.cc}）`:''} 宛でメールソフトを開きました。注文書のPDFを添付して送信してください。`;
+    const ccPart = m.cc ? `&cc=${encodeURIComponent(m.cc)}` : '';
+    location.href = `mailto:${encodeURIComponent(m.to)}?subject=${encodeURIComponent(m.subject)}${ccPart}&body=${encodeURIComponent(m.body)}`;
+  };
+  const FAX_CSS = `
+    @page{size:A4;margin:14mm}
+    body{font-family:"Yu Gothic","Hiragino Kaku Gothic ProN",sans-serif;color:#000;background:#fff;margin:0}
+    .sheet{font-size:13pt;line-height:1.5;padding:0}
+    .sheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
+    .sheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px}
+    .sheet th,.sheet td{border-bottom:1px solid #000;padding:4px 6px}
+    .sheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
+    .sheet td{white-space:nowrap}
+    .sheet td:nth-child(3){white-space:normal}
+    .sheet .co{text-align:right;line-height:1.5;font-size:11pt}
+  `;
+
+  // PDFに焼くときの組版。#faxsheet の中だけに効かせ、画面のプレビューには触らない。
+  const FAX_CSS_PDF = `
+    #faxsheet{font-family:"Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+      color:#000;background:#fff;font-size:13pt;line-height:1.5}
+    #faxsheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
+    #faxsheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px}
+    #faxsheet th,#faxsheet td{border-bottom:1px solid #000;padding:4px 6px}
+    #faxsheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
+    #faxsheet td{white-space:nowrap}
+    #faxsheet td:nth-child(3){white-space:normal}
+    #faxsheet .co{text-align:right;line-height:1.5;font-size:11pt}
+  `;
+
+  // 注文書をA4のPDFにする。ブラウザに組ませて画像にし、それをPDFに入れる。
+  // こうすると日本語のフォントを持ち歩かずに済み、DELL側での変換工程も要らなくなる。
+  async function buildFaxPdfBlob(){
+    if(!window.html2canvas || !window.jspdf) throw new Error('PDFの部品を読み込めませんでした。');
+    const W = 794;                     // A4の幅（96dpi）。ptの指定がそのまま合う
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:-20000px;top:0;width:'+W+'px;background:#fff';
+    const st = document.createElement('style'); st.textContent = FAX_CSS_PDF;
+    const sheet = document.createElement('div');
+    sheet.id = 'faxsheet';
+    sheet.style.cssText = 'width:'+W+'px;padding:53px;box-sizing:border-box;background:#fff';
+    sheet.innerHTML = el('sheet').innerHTML;
+    box.appendChild(st); box.appendChild(sheet);
+    document.body.appendChild(box);
+    try{
+      if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
+      const canvas = await html2canvas(sheet, {scale:2, backgroundColor:'#ffffff', logging:false});
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
+      const pw = 210;
+      const h = canvas.height * pw / canvas.width;
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pw, h);
+      const blob = pdf.output('blob');
+      if(!blob || blob.size < 5000) throw new Error('PDFが小さすぎます（組版に失敗した可能性があります）。');
+      return blob;
+    } finally { box.remove(); }
+  }
+  el('saveFax').onclick = async ()=>{
+    const o = sheetOrder();
+    if(!o.lines || !o.lines.some(l=>l.name)){
+      el('mailHint').textContent = 'この注文書には明細がありません。発注一覧から注文書を開き直してください。';
+      return;
+    }
+    const sup = suppliers().find(s=>s.n===o.supplier) || {};
+    const fax = (sup.fax||'').replace(/[^0-9]/g,'');
+    if(!fax){
+      el('mailHint').textContent = 'この仕入先のFAX番号が未登録です。マスタの「仕入先」で登録してください。';
+      return;
+    }
+    showSheet(o);
+    const hint = el('mailHint');
+    hint.textContent = 'PDFを作っています…';
+    let blob, ext = 'pdf';
+    try{
+      blob = await buildFaxPdfBlob();
+    }catch(e){
+      // PDFが作れないときはHTMLで出す（DELL側でも変換できる）
+      blob = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>'
+        + esc(o.no) + '</title><style>' + FAX_CSS + '</style></head><body><div class="sheet">'
+        + el('sheet').innerHTML + '</div></body></html>';
+      ext = 'html';
+    }
+    const fname = o.no + '_' + fax + '.' + ext;
+    try{
+      saveFile(fname, blob, ext === 'pdf' ? 'application/pdf' : 'text/html;charset=utf-8');
+      hint.textContent = fname + ' を保存しました。FAX送信待ちフォルダに置くと自動で送信されます。'
+        + (ext === 'html' ? '（PDFを作れなかったのでHTMLで保存しました）' : '');
+    }catch(err){
+      hint.textContent = 'ファイルを保存できませんでした（' + err + '）。';
+    }
+  };
+  // メール本文に入れる注文書（Outlookが許可するタグだけで組む）
+  function orderBodyHtml(o){
+    const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
+    let net = 0;
+    const rows = o.lines.filter(l=>l.name).map(l=>{
+      const p = l.priceFixed ?? l.price;
+      const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
+      if(amt!=null && l.cur!=='USD') net += amt;
+      const spec = [l.size,l.color,l.form].filter(Boolean).join(' ');
+      return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
+        + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
+        + '<td>'+(p==null?'—':(l.cur==='USD'?'US$':'')+numf(p))+'</td>'
+        + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td></tr>';
+    }).join('');
+    const tax = Math.floor(net*0.1);
+    return '<p>'+esc(sup.full||o.supplier)+' ご担当者様</p>'
+      + '<p>いつもお世話になっております。株式会社ラインシステムの'+esc(o.staff)+'です。<br>'
+      + '下記のとおり注文いたします。ご確認のほどよろしくお願いいたします。</p>'
+      + '<table><tr><td><b>注文番号</b></td><td>'+esc(o.no)+'</td></tr>'
+      + '<tr><td><b>注文日</b></td><td>'+esc(jdate(o.date))+'</td></tr>'
+      + '<tr><td><b>希望納期</b></td><td>'+esc(o.due||'ご連絡願います')+'</td></tr>'
+      + '<tr><td><b>納入先</b></td><td>'+esc(o.to)+'</td></tr>'
+      + '<tr><td><b>梱包</b></td><td>'+esc(o.packing||'')+'</td></tr></table>'
+      + (o.note?'<p><b>'+esc(o.note)+'</b></p>':'')
+      + '<table><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>'
+      + rows + '</table>'
+      + '<p>税抜小計 '+yen(net)+'<br>消費税10% '+yen(tax)+'<br><b>税込合計 '+yen(net+tax)+'</b></p>'
+      + '<p>納品書および送り状に発注者名を明記してください。</p>'
+      + '<hr><p>株式会社ラインシステム　'+esc(o.staff)+'<br>'
+      + '〒630-8453 奈良市西九条町2-5-10<br>TEL 0742-64-7555／FAX 0742-64-7556</p>';
+  }
+
+  el('draftMail').onclick = ()=>{
+    const o = sheetOrder();
+    const m = mailParts(o);
+    const hint = el('mailHint');
+    if(!m.to){ hint.textContent = 'この仕入先のメールアドレスが未登録です。マスタの「仕入先」で登録してください。'; return; }
+    const from = (settings.fromAddr||'').trim();
+    const url = 'mailto:' + encodeURIComponent(m.to)
+      + '?cc=' + encodeURIComponent(m.cc || '')
+      + '&subject=' + encodeURIComponent(m.subject)
+      + '&body=' + encodeURIComponent(m.body);
+    location.href = url;
+    hint.innerHTML = 'メールソフトを開きました（宛先 ' + esc(m.to) + (m.cc ? '／CC ' + esc(m.cc) : '') + '）。'
+      + (from ? '<b>差出人を ' + esc(from) + ' に変えてから</b>送信してください。' : '内容を確認してから送信してください。');
+  };
+
+  el('copyMail').onclick = async ()=>{
+    const text = mailText(sheetOrder());
+    try{ await navigator.clipboard.writeText(text); el('copyMail').textContent='コピーしました'; setTimeout(()=>el('copyMail').textContent='メール本文をコピー',1600); }
+    catch(e){
+      const ta = document.createElement('textarea'); ta.value = text; el('sheet').prepend(ta); ta.select();
+    }
+  };
+  ['l-staff','l-sup','l-status'].forEach(id => el(id).onchange = renderList);
+  el('listBody').addEventListener('click', e=>{ const id = e.target.dataset.open; if(id) renderDetail(id); });
+  el('detail').addEventListener('click', async e=>{
+    const id = e.target.dataset.savemeta;
+    if(!id) return;
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    o.subNo = el('d-subno').value.trim();
+    o.memo = el('d-memo').value.trim();
+    o.updatedAt = new Date().toISOString();
+    const ok = await saveDoc('orders', o.id, o);
+    el('d-msg').textContent = ok ? '保存しました。' : '保存できませんでした。';
+    renderList();
+  });
+  el('l-q').addEventListener('input', renderList);
+  el('lateOnly').onchange = renderRecv;
+  el('recvBody').addEventListener('click', e=>{
+    const s = e.target.dataset.rsave, c = e.target.dataset.rclose;
+    if(s) saveReceipt(s,false);
+    if(c) saveReceipt(c,true);
+  });
+  el('m-q').addEventListener('input', renderMaster);
+  el('m-csv').onclick = async ()=>{
+    const q = (el('m-q').value||'').trim();
+    const mc = el('m-cat').value;
+    let pool = allItems();
+    if(mc) pool = pool.filter(i => (i.g||'それ以外') === mc);
+    if(q) pool = pool.filter(i => (i.n+' '+i.c+' '+i.z).includes(q));
+
+    const head = ['仕入先','区分','品番','品名','サイズ','色','形態','単価','通貨','単位','単価の時点','出典','登録者'];
+    const esc2 = v => {
+      const s = (v==null?'':String(v));
+      return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+    };
+    const lines = [head.join(',')].concat(pool.map(i => [
+      i.s, i.g||'', i.c||'', i.n||'', i.z||'', i.k||'', i.f||'',
+      (i.p==null?'':i.p), i.cu||'', i.u||'', i.d||'', i.src||'', i.by||''
+    ].map(esc2).join(',')));
+    // Excelで文字化けしないようにBOMを付ける
+    const csv = '﻿' + lines.join('\r\n') + '\r\n';
+
+    const stamp = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const part = (mc ? '_'+mc : '') + (q ? '_'+q : '');
+    const fname = '品目マスタ_' + stamp + part + '.csv';
+    const msg = el('m-msg');
+    try{
+      saveFile(fname, csv, 'text/csv;charset=utf-8');
+      msg.textContent = pool.length.toLocaleString('ja-JP') + '件を書き出しました。';
+      setTimeout(()=>{ msg.textContent=''; }, 4000);
+    }catch(err){
+      msg.textContent = '書き出せませんでした（' + err + '）。';
+    }
+  };
+  el('m-cat').addEventListener('change', renderMaster);
+  el('masterBody').addEventListener('click', async e=>{
+    const h = e.target.dataset.hist;
+    if(h){
+      const item = allItems().find(i => itemKey(i) === h);
+      const lines = historyFor(item).map(r =>
+        `${jdate(r.d) || '時点不明'}　${r.cu==='USD'?'US$':'¥'}${numf(r.p)}　${r.src}${r.by?'（'+r.by+'）':''}`).join('\n');
+      const box = document.createElement('div');
+      box.className = 'hint';
+      box.style.whiteSpace = 'pre-line';
+      box.textContent = `${item.n} ${item.z}\n${lines}`;
+      const row = e.target.closest('tr');
+      const old = row.nextElementSibling;
+      if(old && old.dataset.histrow){ old.remove(); return; }
+      const tr = document.createElement('tr');
+      tr.dataset.histrow = '1';
+      const td = document.createElement('td');
+      td.colSpan = 12; td.appendChild(box); tr.appendChild(td);
+      row.insertAdjacentElement('afterend', tr);
+      return;
+    }
+    const k = e.target.dataset.nsave;
+    if(!k) return;
+    const item = allItems().find(i => itemKey(i) === k);
+    const price = parseFloat(document.querySelector(`[data-np="${CSS.escape(k)}"]`).value);
+    const when = document.querySelector(`[data-nd="${CSS.escape(k)}"]`).value || today();
+    if(!item || isNaN(price)) return;
+    const me = meStaff();
+    const rec = {s:item.s, c:item.c, n:item.n, z:item.z, k:item.k, f:item.f, u:item.u,
+      p:price, cu:item.cu || 'JPY', d:when, src:'単価更新', by:me.n, at:new Date().toISOString()};
+    const ok = await saveDoc('price_updates', 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), rec);
+    renderMaster(); refreshItemList();
+    el('m-msg').textContent = ok ? `${item.n} ${item.z} の単価を ${jdate(when)} 時点で更新しました。` : '更新できませんでした。';
+  });
+  el('ni-add').onclick = async ()=>{
+    const name = el('ni-name').value.trim();
+    if(!name){ el('ni-msg').textContent = '商品名を入れてください。'; return; }
+    const me = meStaff();
+    const priceVal = parseFloat(el('ni-price').value);
+    const item = {s: el('ni-sup').value, c: el('ni-code').value.trim() || ('TMP-'+Date.now().toString(36).slice(-5).toUpperCase()),
+      n: name, z: el('ni-size').value.trim(), k: el('ni-color').value.trim(), f: el('ni-form').value.trim(),
+      u: el('ni-unit').value.trim(), p: isNaN(priceVal) ? null : priceVal, cu: el('ni-cur').value, g: el('ni-cat').value,
+      d: el('ni-date').value || today(), src: '手入力', by: me.n, at: new Date().toISOString()};
+    const ok = await saveDoc('items_custom', 'i'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), item);
+    el('ni-msg').textContent = ok ? `${item.n} を追加しました（品番 ${item.c}）。` : '追加できませんでした。';
+    ['ni-code','ni-name','ni-size','ni-color','ni-form','ni-unit','ni-price'].forEach(id => el(id).value = '');
+    renderMaster(); refreshItemList();
+  };
+  applySettings();
+  el('ap-save').onclick = async ()=>{
+    settings = {kind:'approval', useApproval: el('ap-on').value === 'on', approver: el('ap-who').value,
+      threshold: parseFloat(el('ap-th').value) || 0, chatId: el('ap-chat').value.trim(),
+      chatName: '',
+      fromAddr: el('ap-from').value.trim()};
+    const ok = await saveDoc('settings', 'approval', settings);
+    el('ap-msg').textContent = ok ? '保存しました。' : '保存できませんでした。';
+    renderApprovals();
+  };
+  el('apBody').addEventListener('click', e=>{
+    const a = e.target.dataset.approve, r = e.target.dataset.reject;
+    if(a) decide(a, true);
+    if(r){
+      const row = e.target.closest('tr');
+      if(!row.querySelector('[data-why]')){
+        e.target.insertAdjacentHTML('afterend',
+          `<input data-why="${esc(r)}" placeholder="差し戻す理由" style="width:150px;margin-top:5px">
+           <button class="btn small" data-rejectgo="${esc(r)}" style="margin-top:5px">差し戻す</button>`);
+        e.target.hidden = true;
+      }
+    }
+    const go = e.target.dataset.rejectgo;
+    if(go){
+      const w = document.querySelector(`[data-why="${CSS.escape(go)}"]`);
+      el('ap-msg').dataset.why = w ? w.value : '';
+      decide(go, false);
+    }
+  });
+  el('addSup').onclick = async ()=>{
+    const n = el('ns-name').value.trim(); if(!n) return;
+    const s = {n, full: el('ns-full').value.trim()||n, mail: el('ns-mail').value.trim(), cc: el('ns-cc').value.trim(), fax: el('ns-fax').value.trim(),
+               send: el('ns-send').value, cols:['size','color','form']};
+    const ok = await saveDoc('suppliers_custom','s'+Date.now().toString(36), s);
+    el('ns-name').value=''; el('ns-full').value=''; el('ns-mail').value=''; el('ns-cc').value=''; el('ns-fax').value='';
+    renderSuppliers(); renderMaster();
+  };
+  el('addStaff').onclick = async ()=>{
+    const n = el('nst-name').value.trim();
+    const i = el('nst-init').value.trim().toUpperCase();
+    const msg = el('staffMsg');
+    if(!n || !i){ msg.textContent = '氏名とイニシャルの両方を入れてください。'; return; }
+    if(!/^[A-Z]{1,4}$/.test(i)){ msg.textContent = 'イニシャルは英字（1〜4文字）で入れてください。'; return; }
+    if(staffList().some(s=>s.i===i)){ msg.textContent = 'イニシャル「'+i+'」はすでに使われています。'; return; }
+    const rec = {i:i, n:n};
+    const ok = await saveDoc('staff_custom', 'p'+Date.now().toString(36), rec);
+    if(ok){
+      el('nst-name').value=''; el('nst-init').value='';
+      msg.textContent = n+'（'+i+'）を追加しました。';
+      setTimeout(()=>{ msg.textContent=''; }, 2500);
+    }
+    renderStaff(); refreshStaffSelects();
+  };
+  el('staffBody').addEventListener('click', async e=>{
+    const saveI = e.target.dataset.stsave;
+    const delI  = e.target.dataset.stdel;
+    if(saveI){
+      const box = el('staffBody').querySelector('[data-stn="'+CSS.escape(saveI)+'"]');
+      const n = (box ? box.value : '').trim();
+      if(!n){ el('staffMsg').textContent='氏名を空にはできません。'; return; }
+      const hit = customStaff.find(s=>s.i===saveI);
+      const ok = await saveDoc('staff_custom', (hit && hit.id) || 'p'+Date.now().toString(36), {i:saveI, n:n});
+      if(ok){
+        if(hit) hit.n = n; else customStaff.push({i:saveI, n:n});
+        e.target.textContent='保存しました'; setTimeout(()=>{ e.target.textContent='保存'; }, 1400);
+      }
+      renderStaff(); refreshStaffSelects();
+      return;
+    }
+    if(delI){
+      if(orders.some(o=>o.staffInitial===delI)){
+        el('staffMsg').textContent = delI+' には発注履歴があるため削除できません。';
+        return;
+      }
+      const hit = customStaff.find(s=>s.i===delI);
+      await delStaff(delI);
+    }
+  });
+  el('supBody').addEventListener('click', async e=>{
+    const name = e.target.dataset.ssave; if(!name) return;
+    const box = el('supBody').querySelector(`[data-smail="${CSS.escape(name)}"]`);
+    const mail = (box ? box.value : '').trim();
+    const fbox = el('supBody').querySelector(`[data-sfax="${CSS.escape(name)}"]`);
+    const fax = (fbox ? fbox.value : '').trim();
+    const cbox = el('supBody').querySelector(`[data-scc="${CSS.escape(name)}"]`);
+    const cc = (cbox ? cbox.value : '').trim();
+    const base = suppliers().find(s=>s.n===name) || {n:name};
+    const rec = Object.assign({}, base, {mail, cc, fax});
+    delete rec.id;
+    const hit = customSups.find(s=>s.n===name);
+    const ok = await saveDoc('suppliers_custom', (hit && hit.id) || 's'+Date.now().toString(36), rec);
+    if(ok){
+      if(hit) Object.assign(hit, rec); else customSups.push(rec);
+      e.target.textContent='保存しました'; setTimeout(()=>{ e.target.textContent='保存'; }, 1400);
+    }
+    renderSuppliers();
+  });
+
+  renderAll();
+  boot();
+})();
+</script>
+
+</body></html>
