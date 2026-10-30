@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v6';
+  const APP_VER     = '2026-10-30 v7';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -752,6 +752,26 @@
       }
       return t;
     });
+  }
+  // ---------- 自動FAX ----------
+  // 注文書のHTMLを保管サーバに控えておく。DELLの常駐スクリプトがこれを取りに来て、
+  // PDFに変換してPC-Faxで送る。アプリ側で作るので、紙の体裁は画面と同じになる。
+  function isFaxSupplier(name){
+    const s = suppliers().find(x => x.n === name);
+    return !!(s && String(s.send).toLowerCase() === 'fax' && String(s.fax||'').replace(/[^0-9]/g,''));
+  }
+  function faxStandaloneHtml(o){
+    showSheet(o);
+    return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>'
+      + esc(o.no) + '</title><style>' + FAX_CSS + '</style></head><body><div class="sheet">'
+      + el('sheet').innerHTML + '</div></body></html>';
+  }
+  async function storeFaxHtml(o){
+    if(!isFaxSupplier(o.supplier)) return false;
+    const html = faxStandaloneHtml(o);
+    if(html.length > 45000) return false;        // 保管サーバの1マスに収まらないときは手送りに任せる
+    const r = await api('putSetting', { key: 'faxhtml:' + o.id, value: html });
+    return !!(r && r.ok);
   }
   function refLink(u){
     return /^https?:\/\//i.test(u)
@@ -1106,6 +1126,12 @@
         await saveDoc('items_custom','i'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), item);
       }
       showSheet(order);
+      if(isFaxSupplier(order.supplier)){
+        const put = await storeFaxHtml(order);
+        if(put) el('saveMsg').textContent += order.status === 'pending'
+          ? '　承認されると自動でFAX送信されます。'
+          : '　まもなく自動でFAX送信されます。';
+      }
       el('f-reason').value = ''; el('f-refs').value = '';
       lines = [blankLine()];
       renderLines(); renderAll();
@@ -1250,6 +1276,7 @@
       <div class="row" style="margin-top:6px">
         <button class="btn quiet small" data-savereq="${esc(o.id)}">理由と資料を保存</button>
         ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
+        ${isFaxSupplier(o.supplier) ? `<button class="btn quiet small" data-faxreg="${esc(o.id)}">この注文書を自動FAXに載せる</button>` : ''}
         <span class="tiny muted" id="d-msg2"></span>
       </div>
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
@@ -1766,6 +1793,16 @@
         value: JSON.stringify({ r: o.reason, u: o.refs }) });
       if(r && r.ok){ await loadAll(); renderDetail(rid); el('d-msg2').textContent = '保存しました。'; }
       else el('d-msg2').textContent = '保存できませんでした。';
+      return;
+    }
+    const fid = e.target.dataset.faxreg;
+    if(fid){
+      const o = orders.find(x=>x.id===fid); if(!o) return;
+      el('d-msg2').textContent = '注文書を控えています…';
+      const put = await storeFaxHtml(o);
+      el('d-msg2').textContent = put
+        ? '自動FAXに載せました。' + (o.status === 'pending' ? '承認されると送信されます。' : 'まもなく送信されます。')
+        : '載せられませんでした（FAXの仕入先でないか、注文書が大きすぎます）。';
       return;
     }
     if(nid){
