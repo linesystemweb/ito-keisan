@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v4';
+  const APP_VER     = '2026-10-30 v5';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -1238,8 +1238,19 @@
           <input id="d-subno" value="${esc(o.subNo||'')}" placeholder="例 G210039"></label>
         <label class="field" style="max-width:320px"><span>社内メモ（注文書には出ません）</span>
           <input id="d-memo" value="${esc(o.memo||'')}" placeholder="例 OEM向け"></label>
-        <button class="btn quiet small" data-savemeta="${esc(o.id)}">この2つを保存</button>
+        <button class="btn quiet small" data-savemeta="${esc(o.id)}">保存</button>
         <span class="tiny muted" id="d-msg"></span>
+      </div>
+      <div class="grid g2" style="margin-top:4px">
+        <label class="field"><span>承認依頼の理由</span>
+          <textarea id="d-reason" rows="2" placeholder="例 期末の在庫積み増し。2社相見積のうえ最安。">${esc(o.reason||'')}</textarea></label>
+        <label class="field"><span>根拠資料のURL（1行に1つ）</span>
+          <textarea id="d-refs" rows="2" placeholder="見積書などのリンク">${esc((o.refs||[]).join('\n'))}</textarea></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn quiet small" data-savereq="${esc(o.id)}">理由と資料を保存</button>
+        ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
+        <span class="tiny muted" id="d-msg2"></span>
       </div>
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;
@@ -1719,14 +1730,37 @@
   el('listBody').addEventListener('click', e=>{ const id = e.target.dataset.open; if(id) renderDetail(id); });
   el('detail').addEventListener('click', async e=>{
     const id = e.target.dataset.savemeta;
-    if(!id) return;
-    const o = orders.find(x=>x.id===id); if(!o) return;
-    o.subNo = el('d-subno').value.trim();
-    o.memo = el('d-memo').value.trim();
-    o.updatedAt = new Date().toISOString();
-    const ok = await saveDoc('orders', o.id, o);
-    el('d-msg').textContent = ok ? '保存しました。' : '保存できませんでした。';
-    renderList();
+    const rid = e.target.dataset.savereq;
+    const nid = e.target.dataset.renotify;
+    if(id){
+      const o = orders.find(x=>x.id===id); if(!o) return;
+      o.subNo = el('d-subno').value.trim();
+      o.memo = el('d-memo').value.trim();
+      o.updatedAt = new Date().toISOString();
+      const ok = await saveDoc('orders', o.id, o);
+      el('d-msg').textContent = ok ? '保存しました。' : '保存できませんでした。';
+      renderList();
+      return;
+    }
+    if(rid){
+      const o = orders.find(x=>x.id===rid); if(!o) return;
+      o.reason = el('d-reason').value.trim();
+      o.refs = el('d-refs').value.split(/[\s　]*\n[\s　]*/).map(x=>x.trim()).filter(Boolean);
+      el('d-msg2').textContent = '保存しています…';
+      const r = await api('putSetting', { key: 'req:' + o.id,
+        value: JSON.stringify({ r: o.reason, u: o.refs }) });
+      if(r && r.ok){ await loadAll(); renderDetail(rid); el('d-msg2').textContent = '保存しました。'; }
+      else el('d-msg2').textContent = '保存できませんでした。';
+      return;
+    }
+    if(nid){
+      const o = orders.find(x=>x.id===nid); if(!o) return;
+      el('d-msg2').textContent = '通知しています…';
+      const sent = await notify(approvalMessage(o));
+      el('d-msg2').textContent = sent ? 'Teamsに通知しました。'
+        : 'Teamsの通知先が設定されていないため送れませんでした（「承認待ち」タブで設定します）。';
+      return;
+    }
   });
   el('l-q').addEventListener('input', renderList);
   el('lateOnly').onchange = renderRecv;
