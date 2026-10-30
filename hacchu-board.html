@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v5';
+  const APP_VER     = '2026-10-30 v6';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -770,7 +770,7 @@
     const t = orderTotals(o);
     const lines = ['🔔 承認をお願いします',
       o.no + '　' + o.supplier + '　' + yen(t.gross) + '（税込）　' + o.lines.length + '明細',
-      '発注者 ' + o.staff + (o.due ? '　希望納期 ' + o.due : '')];
+      '発注者 ' + o.staff + (o.due ? '　' + (/^\d{4}-\d{2}-\d{2}$/.test(o.due) ? '希望納期 ' + jdate(o.due) : o.due) : '')];
     if(o.reason) lines.push('【理由】' + o.reason);
     if((o.refs||[]).length) lines.push('【根拠資料】' + o.refs.join('  '));
     const basis = priceBasis(o);
@@ -1458,8 +1458,23 @@
       <td class="tiny muted">${esc(o.rejectReason||'')}</td></tr>`).join('')
       || '<tr><td colspan="5" class="muted tiny">まだ記録がありません。</td></tr>';
   }
+  // 続けて押しても二重に通知が飛ばないようにする
+  const deciding = new Set();
   async function decide(id, approve){
+    if(deciding.has(id)) return;
     const o = orders.find(x=>x.id===id); if(!o) return;
+    deciding.add(id);
+    document.querySelectorAll('[data-approve],[data-reject],[data-rejectgo]').forEach(function(b){
+      if(b.dataset.approve === id || b.dataset.reject === id || b.dataset.rejectgo === id) b.disabled = true;
+    });
+    el('ap-msg').textContent = '処理しています…';
+    try{
+      await decide_(id, approve, o);
+    } finally {
+      deciding.delete(id);
+    }
+  }
+  async function decide_(id, approve, o){
     const me = meStaff();
     const t = orderTotals(o);
     if(approve){
