@@ -95,6 +95,8 @@
   #pane-help h3{color:var(--ink);font-size:14.5px;letter-spacing:0;margin:18px 0 2px}
   #pane-help p{margin:6px 0}
   #pane-help .compact li{margin-bottom:6px}
+  #apBody tr.note td{background:var(--surface-2);border-bottom:2px solid var(--line)}
+  .basis, .basis a{overflow-wrap:anywhere;word-break:break-word}
   .span2{grid-column:span 2}
   .cv{display:contents}
   .lines .rowno{display:none}
@@ -120,6 +122,7 @@
     table.cardify td[data-full]{display:block;color:var(--muted)}
     table.cardify td[data-full]::before{content:none}
     table.cardify tr:has(td[data-full]){background:transparent;border-style:dashed}
+    #apBody tr.note{background:var(--surface-2);border-style:solid;margin-top:-10px}
     table.cardify input,table.cardify select{font-size:16px;padding:8px 9px}
     table.cardify input[type=checkbox]{justify-self:start}
     .lines td.rowno{display:block;font-size:12px;color:var(--muted);font-weight:500;
@@ -188,6 +191,7 @@
       <p>サイズ違いをまとめて頼むときは「まとめて入力」が早いです。商品名で絞って、数量を入れた行だけが明細に入ります。</p>
       <h3>3. 登録して送る</h3>
       <p>「発注を登録する」で注文番号が付きます（例 LS26-0001-MI）。<span id="help-th">金額が大きいものは承認待ちに入ります。</span></p>
+      <p>承認が必要な金額になると、明細の下に<strong>「承認依頼」</strong>の欄が出ます。<strong>理由は必須</strong>です。見積書などのリンクがあれば「根拠資料のURL」に貼ってください（1行に1つ）。単価の時点・出典と前回単価との差は、アプリが自動で付けて通知します。</p>
       <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。</p>
       <ul class="compact">
         <li><strong>メールを作成</strong>…宛先・件名・本文が入った下書きができます。内容を見てから自分で送信してください。</li>
@@ -287,6 +291,19 @@
         <div class="stat" style="min-width:150px"><span class="tiny muted">税抜小計</span><b id="totNet">¥0</b></div>
         <div class="stat" style="min-width:150px"><span class="tiny muted">消費税 10%</span><b id="totTax">¥0</b></div>
         <div class="stat" style="min-width:160px"><span class="tiny muted">税込合計</span><b id="totGross">¥0</b></div>
+      </div>
+      <div id="apReqBox" hidden style="margin-top:14px;border:1px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:12px 14px">
+        <div class="row" style="gap:8px;align-items:baseline">
+          <strong style="font-family:'Zen Kaku Gothic New',sans-serif">承認依頼</strong>
+          <span class="tiny" id="apReqWhy"></span>
+        </div>
+        <div class="grid g2" style="margin-top:10px">
+          <label class="field"><span>承認をお願いする理由（必須）</span>
+            <textarea id="f-reason" rows="2" placeholder="例 期末の在庫積み増し。2社相見積のうえ廣川が最安。"></textarea></label>
+          <label class="field"><span>根拠資料のURL（1行に1つ・任意）</span>
+            <textarea id="f-refs" rows="2" placeholder="見積書などのリンクを貼り付け（SharePoint・OneDrive など）"></textarea></label>
+        </div>
+        <div class="tiny muted" style="margin-top:8px">単価の時点・出典と前回単価との差は、アプリが自動で通知に付けます。</div>
       </div>
       <div class="row" style="margin-top:14px">
         <button class="btn" id="saveOrder">発注を登録する</button>
@@ -516,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v3';
+  const APP_VER     = '2026-10-30 v4';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -646,6 +663,12 @@
         chatName: '',
         fromAddr: t.fromAddr || 'fishing2@linesystem.jp'
       };
+      // 承認依頼の理由・資料URLを注文に戻す
+      orders.forEach(function(o){
+        const raw = t['req:' + o.id];
+        if(!raw) return;
+        try{ const j = JSON.parse(raw); o.reason = j.r || ''; o.refs = j.u || []; }catch(e){}
+      });
       banner('');
       refreshStaffSelects();
       applySettings();
@@ -705,6 +728,55 @@
     feed(customItems);
     feed(priceUpdates);
     return [...merged.values()];
+  }
+  // 承認者に見せる単価の根拠（いつの単価か・どこから来たか・前回からいくら動いたか）
+  function priceStr(p, cur){ return p==null ? '単価未定' : ((cur==='USD'?'US$':'¥') + numf(p)); }
+  function priceBasis(o){
+    const pool = allItems().filter(i => i.s === o.supplier);
+    return (o.lines||[]).map(l=>{
+      const it = pool.find(i => (l.code && norm(i.c) === norm(l.code)))
+              || pool.find(i => norm(i.n) === norm(l.name) && norm(i.z) === norm(l.size));
+      let t = '・' + [l.name, l.size].filter(Boolean).join(' ')
+            + '　' + priceStr(l.price, l.cur) + (l.unit ? '／' + l.unit : '')
+            + '　× ' + numf(l.qty);
+      if(it && it.d) t += '（' + jdate(it.d) + '時点' + (it.src ? '・' + it.src : '') + '）';
+      if(it){
+        const prev = historyFor(it).filter(x => String(x.d) !== String(it.d))[0];
+        if(prev && prev.p != null){
+          t += ' 前回 ' + jdate(prev.d) + ' ' + priceStr(prev.p, prev.cu);
+          if(l.price != null && prev.p) {
+            const diff = Math.round((l.price / prev.p - 1) * 1000) / 10;
+            if(diff) t += '（' + (diff > 0 ? '+' : '') + diff + '%）';
+          }
+        }
+      }
+      return t;
+    });
+  }
+  function refLink(u){
+    return /^https?:\/\//i.test(u)
+      ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.length>70?u.slice(0,70)+'…':u)}</a>`
+      : esc(u);
+  }
+  function basisBlock(o){
+    const basis = priceBasis(o);
+    return '<div class="tiny basis" style="line-height:1.7">'
+      + (o.reason ? `<div><strong>理由</strong>　${esc(o.reason)}</div>` : '<div class="muted">理由の記載はありません。</div>')
+      + ((o.refs||[]).length ? `<div><strong>根拠資料</strong>　${o.refs.map(refLink).join('　')}</div>` : '')
+      + (basis.length ? `<div style="margin-top:4px"><strong>単価の根拠</strong><div class="muted" style="white-space:pre-line">${esc(basis.join('\n'))}</div></div>` : '')
+      + '</div>';
+  }
+  function approvalMessage(o){
+    const t = orderTotals(o);
+    const lines = ['🔔 承認をお願いします',
+      o.no + '　' + o.supplier + '　' + yen(t.gross) + '（税込）　' + o.lines.length + '明細',
+      '発注者 ' + o.staff + (o.due ? '　希望納期 ' + o.due : '')];
+    if(o.reason) lines.push('【理由】' + o.reason);
+    if((o.refs||[]).length) lines.push('【根拠資料】' + o.refs.join('  '));
+    const basis = priceBasis(o);
+    if(basis.length) lines.push('【単価の根拠】', basis.join('\n'));
+    lines.push('承認はこちら ' + location.origin + location.pathname);
+    return lines.join('\n');
   }
   function historyFor(hit){
     const k = itemKey(hit);
@@ -778,6 +850,21 @@
     el('totNet').textContent = yen(net);
     el('totTax').textContent = yen(tax);
     el('totGross').textContent = yen(net+tax);
+    refreshApReq(net + tax);
+  }
+  // 承認が要る金額になったら、理由と根拠資料の欄を出す
+  function refreshApReq(gross){
+    const box = el('apReqBox');
+    if(!box) return;
+    const th = Number(settings.threshold) || 0;
+    const need = settings.useApproval && (th <= 0 || gross > th);
+    box.hidden = !need;
+    if(need){
+      const money = th >= 10000 ? (th/10000) + '万円' : th.toLocaleString('ja-JP') + '円';
+      el('apReqWhy').textContent = th > 0
+        ? '税込' + money + 'を超えるので、' + (settings.approver ? (staffList().find(s=>s.i===settings.approver)||{n:'承認者'}).n : '承認者') + 'さんの承認待ちになります。'
+        : 'この設定では全件が承認待ちになります。';
+    }
   }
   function refreshItemList(){
     const pool = supItems();
@@ -977,6 +1064,8 @@
       staff: staff.n, staffInitial: staff.i, supplier: el('f-sup').value,
       due: el('f-due').value, to: deliverTo(), packing: el('f-pack').value, note: el('f-note').value,
       subNo: el('f-subno').value.trim(), memo: el('f-memo').value.trim(),
+      reason: el('f-reason').value.trim(),
+      refs: el('f-refs').value.split(/[\s　]*\n[\s　]*/).map(x=>x.trim()).filter(Boolean),
       status:'sent', createdAt: new Date().toISOString(),
       approver: settings.useApproval ? (staffList().find(s=>s.i===settings.approver)||{}).n : '',
       lines: lines.filter(l=>l.name).map((l,idx)=>({
@@ -987,14 +1076,24 @@
       }))
     };
     if(needsApproval(order)){
+      if(!order.reason){
+        el('saveMsg').textContent = '承認が必要な金額です。「承認依頼」の理由を入れてください。';
+        el('f-reason').focus();
+        return;
+      }
       order.status = 'pending';
       order.requestedAt = new Date().toISOString();
+    }
+    // 承認依頼の理由と資料URLを先に控えておく（保管サーバの設定シートに1件1行）
+    if(order.status === 'pending' && (order.reason || (order.refs||[]).length)){
+      await api('putSetting', { key: 'req:' + id,
+        value: JSON.stringify({ r: order.reason || '', u: order.refs || [] }) });
     }
     const ok = await saveDoc('orders', id, order);
     if(ok && ok.no) order.no = ok.no;          // 保管サーバが付けた番号
     if(ok && order.status === 'pending'){
       const t = orderTotals(order);
-      const sent = await notify(`🔔 承認をお願いします：${order.no}（${order.supplier}・${yen(t.gross)}・${order.lines.length}明細）発注者 ${order.staff}`);
+      const sent = await notify(approvalMessage(order));
       el('saveMsg').textContent = `${order.no} を承認待ちにしました。` + (sent ? 'Teamsに通知しました。' : '');
     } else {
       el('saveMsg').textContent = ok ? `${order.no} で登録しました。` : '保存できませんでした（閲覧のみの可能性があります）。';
@@ -1007,6 +1106,7 @@
         await saveDoc('items_custom','i'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), item);
       }
       showSheet(order);
+      el('f-reason').value = ''; el('f-refs').value = '';
       lines = [blankLine()];
       renderLines(); renderAll();
     }
@@ -1334,7 +1434,8 @@
         <td><div class="row" style="gap:5px">
           <button class="btn small" data-approve="${esc(o.id)}">承認</button>
           <button class="btn quiet small" data-reject="${esc(o.id)}">差し戻し</button>
-        </div></td></tr>`;
+        </div></td></tr>
+        <tr class="note"><td colspan="8">${basisBlock(o)}</td></tr>`;
     }).join('') || '<tr><td colspan="8" class="muted tiny">承認待ちはありません。</td></tr>';
 
     const done = orders.filter(o => o.approvedAt || o.rejectedAt)
