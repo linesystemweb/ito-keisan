@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v9';
+  const APP_VER     = '2026-10-30 v10';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -1164,13 +1164,18 @@
     shownOrder = o;
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     let net = 0;
+    // 荷姿・納期は入っている注文のときだけ列を出す（空の列で紙を汚さないため）
+    const hasPack = o.lines.some(l=>String(l.pack||'').trim());
+    const hasDue  = o.lines.some(l=>String(l.due||'').trim());
     const rows = o.lines.map(l=>{
       const amt = (l.qty!=null && l.price!=null) ? l.qty*l.price : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join(' '))}</td>
+        ${hasPack?`<td>${esc(l.pack||'')}</td>`:''}
         <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
         <td style="text-align:right">${l.price==null?'—':(l.cur==='USD'?'US$':'')+numf(l.price)}</td>
-        <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td></tr>`;
+        <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>
+        ${hasDue?`<td>${esc(l.due||'')}</td>`:''}</tr>`;
     }).join('');
     const tax = Math.floor(net*0.1);
     el('sheet').innerHTML = `
@@ -1194,7 +1199,7 @@
       </div>
       <p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>
       ${o.note?`<p style="font-weight:700;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:''}
-      <table style="margin-top:8px"><thead><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th><th style="text-align:right">数量</th><th>単位</th><th style="text-align:right">単価</th><th style="text-align:right">金額</th></tr></thead><tbody>${rows}</tbody></table>
+      <table style="margin-top:8px"><thead><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>${hasPack?'<th>荷姿</th>':''}<th style="text-align:right">数量</th><th>単位</th><th style="text-align:right">単価</th><th style="text-align:right">金額</th>${hasDue?'<th>納期・着指定</th>':''}</tr></thead><tbody>${rows}</tbody></table>
       <div style="display:flex;justify-content:flex-end;gap:18px;margin-top:10px">
         <div style="text-align:right">
           <div>税抜小計 ${yen(net)}</div>
@@ -1725,15 +1730,19 @@
   function orderBodyHtml(o){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     let net = 0;
+    const hasPack = o.lines.some(l=>String(l.pack||'').trim());
+    const hasDue  = o.lines.some(l=>String(l.due||'').trim());
     const rows = o.lines.filter(l=>l.name).map(l=>{
       const p = l.priceFixed ?? l.price;
       const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       const spec = [l.size,l.color,l.form].filter(Boolean).join(' ');
       return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
+        + (hasPack?'<td>'+esc(l.pack||'')+'</td>':'')
         + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
         + '<td>'+(p==null?'—':(l.cur==='USD'?'US$':'')+numf(p))+'</td>'
-        + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td></tr>';
+        + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td>'
+        + (hasDue?'<td>'+esc(l.due||'')+'</td>':'')+'</tr>';
     }).join('');
     const tax = Math.floor(net*0.1);
     return '<p>'+esc(sup.full||o.supplier)+' ご担当者様</p>'
@@ -1745,7 +1754,7 @@
       + '<tr><td><b>納入先</b></td><td>'+esc(o.to)+'</td></tr>'
       + '<tr><td><b>梱包</b></td><td>'+esc(o.packing||'')+'</td></tr></table>'
       + (o.note?'<p><b>'+esc(o.note)+'</b></p>':'')
-      + '<table><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr>'
+      + '<table><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>'+(hasPack?'<th>荷姿</th>':'')+'<th>数量</th><th>単位</th><th>単価</th><th>金額</th>'+(hasDue?'<th>納期・着指定</th>':'')+'</tr>'
       + rows + '</table>'
       + '<p>税抜小計 '+yen(net)+'<br>消費税10% '+yen(tax)+'<br><b>税込合計 '+yen(net+tax)+'</b></p>'
       + '<p>納品書および送り状に発注者名を明記してください。</p>'
