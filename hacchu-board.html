@@ -379,7 +379,7 @@
       </div>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>発注No</th><th>副発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th>社内メモ</th><th class="num">明細</th><th class="num">税込金額</th><th>状態</th><th></th></tr></thead>
+          <thead><tr><th>発注No</th><th>副発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th>社内メモ</th><th class="num">明細</th><th class="num">税込金額</th><th>状態</th><th>FAX送信</th><th></th></tr></thead>
           <tbody id="listBody"></tbody>
         </table>
       </div>
@@ -512,7 +512,20 @@
   const numf = n => (n==null||isNaN(n)) ? '' : Number(n).toLocaleString('ja-JP');
   const el = id => document.getElementById(id);
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const today = () => new Date().toISOString().slice(0,10);
+  // 日付と時刻はパソコンの時計の設定に関係なく、いつも日本時間で出します。
+  // （保管サーバに入っている日時は世界標準時なので、そのまま出すと9時間ずれます）
+  function jstParts(v){
+    const d = v instanceof Date ? v : new Date(String(v||''));
+    if(isNaN(d.getTime())) return null;
+    const p = {};
+    try{
+      new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Tokyo', year:'numeric', month:'2-digit',
+        day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'})
+        .formatToParts(d).forEach(x=>{ p[x.type]=x.value; });
+    }catch(e){ return null; }
+    return p.year ? p : null;
+  }
+  const today = () => { const p = jstParts(new Date()); return p ? `${p.year}-${p.month}-${p.day}` : new Date().toISOString().slice(0,10); };
   // 2026-10-12 → 2026年10月12日、2026-10 → 2026年10月
   function jdate(v){
     const s = String(v||'').trim();
@@ -521,11 +534,24 @@
     if(!m) return s;
     return m[3] ? `${m[1]}年${+m[2]}月${+m[3]}日` : `${m[1]}年${+m[2]}月`;
   }
+  // 2026-10-30T06:48:12.000Z → 2026年10月30日 15:48（日本時間）
   const jdatetime = v => {
-    const s = String(v||'');
+    const s = String(v||'').trim();
+    if(!s) return '';
+    if(s.length > 10){
+      const p = jstParts(s);
+      if(p) return `${p.year}年${+p.month}月${+p.day}日 ${p.hour}:${p.minute}`;
+    }
     const d = jdate(s.slice(0,10));
     const t = s.slice(11,16);
     return d ? (t ? `${d} ${t}` : d) : '';
+  };
+  // 一覧の中など、短く出したいとき 10/30 15:48（日本時間）
+  const jmdhm = v => {
+    const s = String(v||'').trim();
+    if(!s) return '';
+    const p = s.length > 10 ? jstParts(s) : null;
+    return p ? `${+p.month}/${+p.day} ${p.hour}:${p.minute}` : jdatetime(s);
   };
 
   // ---------- 保管サーバ（GAS）とサインイン ----------
@@ -533,7 +559,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v10';
+  const APP_VER     = '2026-10-30 v11';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -1257,7 +1283,8 @@
         <td class="num">${o.lines.length}</td><td class="num">${yen(t.gross)}${t.usd?` <span class="tiny muted">+US$${numf(Math.round(t.usd))}</span>`:''}</td>
         <td>${o.status==='pending'?'<span class="pill warn">承認待ち</span>':o.status==='rejected'?'<span class="pill bad">差し戻し</span>':
           (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}
-          ${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">FAX済</span>`:''}</td>
+        </td>
+        <td class="tiny">${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">${esc(jmdhm(o.faxSentAt))}</span>`:''}</td>
         <td><button class="btn quiet small" data-open="${esc(o.id)}">開く</button></td></tr>`;
     }).join('');
   }
