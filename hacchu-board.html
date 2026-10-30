@@ -516,7 +516,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-29 v2';
+  const APP_VER     = '2026-10-30 v3';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -608,7 +608,7 @@
         if(!r || !r.ok) break;
       }
     }
-    if(r && r.ok){ await loadAll(); return true; }
+    if(r && r.ok){ await loadAll(); return coll === 'orders' ? r : true; }
     banner((r && r.error) ? ('保存できませんでした：' + r.error) : '保存できませんでした。');
     return false;
   }
@@ -973,7 +973,7 @@
     const staff = meStaff();
     const id = 'o'+Date.now().toString(36);
     const order = {
-      id, no: nextNo(staff.i), date: el('f-date').value || today(),
+      id, no: '', date: el('f-date').value || today(),   // 番号は保管サーバで採番（重複防止）
       staff: staff.n, staffInitial: staff.i, supplier: el('f-sup').value,
       due: el('f-due').value, to: deliverTo(), packing: el('f-pack').value, note: el('f-note').value,
       subNo: el('f-subno').value.trim(), memo: el('f-memo').value.trim(),
@@ -991,6 +991,7 @@
       order.requestedAt = new Date().toISOString();
     }
     const ok = await saveDoc('orders', id, order);
+    if(ok && ok.no) order.no = ok.no;          // 保管サーバが付けた番号
     if(ok && order.status === 'pending'){
       const t = orderTotals(order);
       const sent = await notify(`🔔 承認をお願いします：${order.no}（${order.supplier}・${yen(t.gross)}・${order.lines.length}明細）発注者 ${order.staff}`);
@@ -1408,8 +1409,11 @@
   el('pasteAdd').onclick = addPasted;
   el('addLine').onclick = ()=>{ lines.push(blankLine()); renderLines(); };
   el('addLine10').onclick = ()=>{ for(let n=0;n<10;n++) lines.push(blankLine()); renderLines(); };
-  el('lineBody').addEventListener('input', e=>{
-    const t = e.target, i = t.dataset.i, k = t.dataset.k;
+  // 明細の入力。日本語入力（IME）の変換中に表を作り直すと、
+  // 入力中の文字が壊れてしまうので、変換が確定するまで作り直さない。
+  let composing = false, skipNextInput = false;
+  function applyLineEdit(t){
+    const i = t.dataset.i, k = t.dataset.k;
     if(i==null||!k) return;
     lines[i][k] = t.type==='checkbox' ? t.checked : t.value;
     if(k==='name'||k==='code'||k==='size') autofill(i,k);
@@ -1419,11 +1423,26 @@
       const again = document.querySelector(`[data-i="${i}"][data-k="${k}"]`);
       if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
     } else totals();
+  }
+  el('lineBody').addEventListener('compositionstart', ()=>{ composing = true; });
+  el('lineBody').addEventListener('compositionend', e=>{
+    composing = false;
+    skipNextInput = true;          // 確定直後のinputは二度手間になるので飛ばす
+    applyLineEdit(e.target);
+  });
+  el('lineBody').addEventListener('input', e=>{
+    const t = e.target, i = t.dataset.i, k = t.dataset.k;
+    if(i==null||!k) return;
+    if(composing || e.isComposing){ lines[i][k] = t.value; return; }   // 変換中は値だけ控える
+    if(skipNextInput){ skipNextInput = false; return; }
+    applyLineEdit(t);
   });
   el('lineBody').addEventListener('change', e=>{
     const t = e.target;
-    if(t.dataset.k==='cur'){ lines[t.dataset.i].cur = t.value; renderLines(); }
-    if(t.dataset.k==='register'){ lines[t.dataset.i].register = t.checked; }
+    if(t.dataset.k==='cur'){ lines[t.dataset.i].cur = t.value; renderLines(); return; }
+    if(t.dataset.k==='register'){ lines[t.dataset.i].register = t.checked; return; }
+    // 変換の確定だけで終わった入力を、ここでも拾っておく
+    if(t.dataset.i!=null && t.dataset.k) applyLineEdit(t);
   });
   el('lineBody').addEventListener('click', e=>{
     const d = e.target.dataset.del;
@@ -1436,7 +1455,16 @@
     lines[i].price = p;
     renderLines();
   });
-  el('saveOrder').onclick = saveOrder;
+  // 続けて押しても二重に登録されないようにする
+  let savingOrder = false;
+  el('saveOrder').onclick = async ()=>{
+    if(savingOrder) return;
+    savingOrder = true;
+    const btn = el('saveOrder'), label = btn.textContent;
+    btn.disabled = true; btn.textContent = '登録しています…';
+    try{ await saveOrder(); }
+    finally{ savingOrder = false; btn.disabled = false; btn.textContent = label; }
+  };
   el('previewBtn').onclick = ()=>showSheet(currentDraft());
   el('openMail').onclick = ()=>{
     const m = mailParts(sheetOrder());
