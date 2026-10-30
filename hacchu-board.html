@@ -192,7 +192,7 @@
       <h3>3. 登録して送る</h3>
       <p>「発注を登録する」で注文番号が付きます（例 LS26-0001-MI）。<span id="help-th">金額が大きいものは承認待ちに入ります。</span></p>
       <p>承認が必要な金額になると、明細の下に<strong>「承認依頼」</strong>の欄が出ます。<strong>理由は必須</strong>です。見積書などのリンクがあれば「根拠資料のURL」に貼ってください（1行に1つ）。単価の時点・出典と前回単価との差は、アプリが自動で付けて通知します。</p>
-      <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。</p>
+      <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。<strong>FAXの仕入先は送信も自動です。</strong>承認（承認が要らない金額ならそのまま登録）から5分後に、事務所のパソコンが注文書を取りに行って自動でFAX送信します。送信が終わると、一覧の状態に「FAX済」が付き、Teamsにも流れます。</p>
       <ul class="compact">
         <li><strong>メールを作成</strong>…宛先・件名・本文が入った下書きができます。内容を見てから自分で送信してください。</li>
         <li><strong>FAX送信用PDFを保存</strong>…PDFが保存されます。FAXの仕入先はこちらです。</li>
@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v7';
+  const APP_VER     = '2026-10-30 v8';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -663,8 +663,9 @@
         chatName: '',
         fromAddr: t.fromAddr || 'fishing2@linesystem.jp'
       };
-      // 承認依頼の理由・資料URLを注文に戻す
+      // 承認依頼の理由・資料URL、FAX送信済みの記録を注文に戻す
       orders.forEach(function(o){
+        o.faxSentAt = t['faxsent:' + o.id] || '';
         const raw = t['req:' + o.id];
         if(!raw) return;
         try{ const j = JSON.parse(raw); o.reason = j.r || ''; o.refs = j.u || []; }catch(e){}
@@ -1248,7 +1249,8 @@
         <td class="tiny muted">${esc(o.memo||'')}</td>
         <td class="num">${o.lines.length}</td><td class="num">${yen(t.gross)}${t.usd?` <span class="tiny muted">+US$${numf(Math.round(t.usd))}</span>`:''}</td>
         <td>${o.status==='pending'?'<span class="pill warn">承認待ち</span>':o.status==='rejected'?'<span class="pill bad">差し戻し</span>':
-          (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}</td>
+          (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}
+          ${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">FAX済</span>`:''}</td>
         <td><button class="btn quiet small" data-open="${esc(o.id)}">開く</button></td></tr>`;
     }).join('');
   }
@@ -1258,6 +1260,7 @@
     const t = orderTotals(o);
     el('detail').innerHTML = `<div class="row"><h2 style="margin:0">${esc(o.no)}　${esc(o.supplier)}</h2>
         <span class="tiny muted">${esc(jdate(o.date))}／${esc(o.staff)}／納入先 ${esc(o.to)}</span>
+        ${o.faxSentAt?`<span class="pill ok">FAX送信済み ${esc(jdatetime(o.faxSentAt))}</span>`:''}
         <button class="btn quiet small right" id="sheetBtn">注文書を見る</button></div>
       <div class="row" style="margin-top:10px;align-items:flex-end">
         <label class="field" style="max-width:200px"><span>副発注No.（先方の番号）</span>
