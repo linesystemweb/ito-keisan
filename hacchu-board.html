@@ -192,7 +192,7 @@
       <h3>3. 登録して送る</h3>
       <p>「発注を登録する」で注文番号が付きます（例 LS26-0001-MI）。<span id="help-th">金額が大きいものは承認待ちに入ります。</span></p>
       <p>承認が必要な金額になると、明細の下に<strong>「承認依頼」</strong>の欄が出ます。<strong>理由は必須</strong>です。見積書などのリンクがあれば「根拠資料のURL」に貼ってください（1行に1つ）。単価の時点・出典と前回単価との差は、アプリが自動で付けて通知します。</p>
-      <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。<strong>FAXの仕入先は送信も自動です。</strong>承認（承認が要らない金額ならそのまま登録）から5分後に、事務所のパソコンが注文書を取りに行って自動でFAX送信します。送信が終わると、一覧の状態に「FAX済」が付き、Teamsにも流れます。</p>
+      <p>続いて「注文書プレビュー」で中身を確かめてから、仕入先に合わせて送ります。<strong>FAXの仕入先は送信も自動です。</strong>承認（承認が要らない金額ならそのまま登録）から5分後に、事務所のパソコンが注文書を取りに行って自動でFAX送信します。送信が終わると、一覧の状態に「FAX済」が付き、<strong>発注者本人のTeamsに完了が流れます</strong>（通知先はマスタの担当者で設定します）。</p>
       <ul class="compact">
         <li><strong>メールを作成</strong>…宛先・件名・本文が入った下書きができます。内容を見てから自分で送信してください。</li>
         <li><strong>FAX送信用PDFを保存</strong>…PDFが保存されます。FAXの仕入先はこちらです。</li>
@@ -489,7 +489,7 @@
       <h2>担当者</h2>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>氏名</th><th>イニシャル</th><th>注文番号の例</th><th></th></tr></thead>
+          <thead><tr><th>氏名</th><th>イニシャル</th><th>注文番号の例</th><th>FAX送信完了の通知先（WorkflowのWebhook URL）</th><th></th></tr></thead>
           <tbody id="staffBody"></tbody>
         </table>
       </div>
@@ -533,7 +533,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v8';
+  const APP_VER     = '2026-10-30 v9';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -664,6 +664,8 @@
         fromAddr: t.fromAddr || 'fishing2@linesystem.jp'
       };
       // 承認依頼の理由・資料URL、FAX送信済みの記録を注文に戻す
+      staffHooks = {};
+      Object.keys(t).forEach(function(k){ if(k.indexOf('hook:') === 0) staffHooks[k] = t[k]; });
       orders.forEach(function(o){
         o.faxSentAt = t['faxsent:' + o.id] || '';
         const raw = t['req:' + o.id];
@@ -1396,6 +1398,7 @@
       </div></td></tr>`;
     }).join('');
   }
+  let staffHooks = {};                      // 担当者ごとのFAX通知先（設定シートの hook:イニシャル）
   function renderStaff(){
     const yy = String(new Date().getFullYear()).slice(2);
     el('staffBody').innerHTML = staffList().map(s=>{
@@ -1405,6 +1408,7 @@
         + '<td><input style="min-width:140px" value="'+esc(s.n||'')+'" data-stn="'+esc(s.i)+'"></td>'
         + '<td><b>'+esc(s.i)+'</b></td>'
         + '<td class="tiny muted">LS'+yy+'-0001-'+esc(s.i)+'</td>'
+        + '<td><input style="min-width:220px" placeholder="空なら共通の通知先へ" value="'+esc(staffHooks['hook:'+s.i]||'')+'" data-sthook="'+esc(s.i)+'"></td>'
         + '<td><div class="row" style="gap:4px">'
         + '<button class="btn quiet small" data-stsave="'+esc(s.i)+'">保存</button>'
         + ((custom && !used) ? '<button class="btn quiet small" data-stdel="'+esc(s.i)+'">削除</button>' : '')
@@ -1964,6 +1968,14 @@
       const box = el('staffBody').querySelector('[data-stn="'+CSS.escape(saveI)+'"]');
       const n = (box ? box.value : '').trim();
       if(!n){ el('staffMsg').textContent='氏名を空にはできません。'; return; }
+      const hbox = el('staffBody').querySelector('[data-sthook="'+CSS.escape(saveI)+'"]');
+      if(hbox){
+        const url = hbox.value.trim();
+        if(url !== (staffHooks['hook:'+saveI] || '')){
+          await api('putSetting', { key: 'hook:' + saveI, value: url });
+          staffHooks['hook:'+saveI] = url;
+        }
+      }
       const hit = customStaff.find(s=>s.i===saveI);
       const ok = await saveDoc('staff_custom', (hit && hit.id) || 'p'+Date.now().toString(36), {i:saveI, n:n});
       if(ok){
