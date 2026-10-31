@@ -15,7 +15,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);overflow-x:hidden}
 body{font-family:var(--sans);font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
-button,input,select{font:inherit}
+button,input,select,textarea{font:inherit}
 
 /* ---------- app chrome ---------- */
 .app{max-width:640px;margin:0 auto;padding:0 12px 96px}
@@ -41,10 +41,11 @@ p.sub{margin:0 0 14px;font-size:13px;color:var(--muted)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .field{display:block;margin-bottom:12px}
 .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:700}
-input[type=text],input[type=number],input[type=date],input[type=search]{
+input[type=text],input[type=number],input[type=date],input[type=search],textarea{
   width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:7px;background:var(--card);
   color:var(--ink);font-size:16px}      /* 16px 未満だと iOS が勝手にズームする */
-input:focus{outline:2px solid var(--ai);outline-offset:1px;border-color:var(--ai)}
+textarea{resize:vertical;line-height:1.6;min-height:64px}
+input:focus,textarea:focus{outline:2px solid var(--ai);outline-offset:1px;border-color:var(--ai)}
 
 .rowbtns{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
 .btn{flex:1 1 auto;min-width:120px;padding:12px 16px;border-radius:8px;border:1px solid var(--ai);
@@ -119,6 +120,10 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
 .total .box{display:flex;gap:26px;font-weight:700;font-size:15px;padding:3px 8px 4px;
   border-top:1.2px solid #333;border-bottom:2.4px double #333}
 .total .amt{font-variant-numeric:tabular-nums;min-width:88px;text-align:right}
+.issuer .staff{font-weight:400;font-size:12.5px;color:#333;margin-top:2px}
+.biko{margin:7mm 6mm 0 6mm;font-size:13px;line-height:1.75}
+.biko .lb{color:#666;font-size:12.5px;display:block;margin-bottom:2px}
+.biko .tx{display:block;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid #c9c9c9;padding-bottom:4px;min-height:1.6em}
 .two-line tbody tr.r1 td{padding-bottom:0}
 .two-line tbody tr.r2 td{padding-top:1px;padding-bottom:9px}
 .two-line tbody tr.r2 td.pn{padding-left:24px}
@@ -234,7 +239,13 @@ table.cart input{width:74px;padding:6px 8px;text-align:right;font-size:16px}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
     <label class="field"><span>伝票番号</span><input type="number" id="slipNo" oninput="renderItaku()"></label>
     <label class="field"><span>引渡日</span><input type="date" id="hikiwatasi" oninput="renderItaku()"></label>
+    <label class="field"><span>希望納期（任意）</span><input type="date" id="nouki" oninput="renderItaku()"></label>
+    <label class="field"><span>担当者</span><input type="text" id="slipStaff" readonly
+      title="「⑤ 保存先」で変えられます" style="background:#F1F3EF;color:#3A4552;cursor:pointer" onclick="go(4)"></label>
   </div>
+  <label class="field"><span>備考（任意）</span><textarea id="biko" rows="2"
+    placeholder="例：ケース入れまでお願いします" oninput="renderItaku()"></textarea></label>
+  <p class="note" style="margin:-4px 0 12px">希望納期と備考は、入れたときだけ委託伝票に出ます。担当者は「⑤ 保存先」で変えられます。</p>
   <div class="rowbtns noprint">
     <button class="btn" onclick="window.print()">印刷 / PDFにする</button>
     <button class="btn ghost" onclick="shareSheet('itaku')">PDFにしてLINEで送る</button>
@@ -726,6 +737,8 @@ function stopScan(){
 function renderItaku(){
   const no=document.getElementById("slipNo").value||NEXT_NO;
   const hw=document.getElementById("hikiwatasi").value||iso(new Date());
+  const nk=noukiVal(), bk=bikoVal(), stf=staffName();
+  const sf=document.getElementById("slipStaff"); if(sf) sf.value = stf || "未設定（⑤ 保存先で入れてください）";
   let sum=0;
   const rows=S.cart.map(c=>{ const k=c.qty*c.price; sum+=k;
     return `<tr><td class="cd">${esc(c.code)}</td><td>${esc(c.name)}</td>
@@ -733,14 +746,17 @@ function renderItaku(){
   document.getElementById("itakuOut").innerHTML=`<div class="scaler"><div class="sheet">
     <h1 class="doc-title"><span>商品加工委託伝票</span></h1>
     <div class="issuer"><div>${ymdJ(iso(new Date()))}</div>
-      <div class="addr">${ISSUER.addr}</div><div class="corp">${ISSUER.corp}</div></div>
+      <div class="addr">${ISSUER.addr}</div><div class="corp">${ISSUER.corp}</div>
+      ${stf?`<div class="staff">担当：${esc(stf)}</div>`:""}</div>
     <dl class="meta"><dt>伝票番号</dt><dd>${esc(no)}</dd>
       <dt>引渡日</dt><dd>${ymd(hw)}</dd>
+      ${nk?`<dt>希望納期</dt><dd>${ymd(nk)}</dd>`:""}
       <dt>委託先</dt><dd>${esc(S.worker[1])} 様</dd></dl>
     <table><thead><tr><th style="width:13%">商品コード</th><th>商品名</th>
       <th class="n" style="width:10%">数量</th><th class="n" style="width:9%">単価</th>
       <th class="n" style="width:12%">金額</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="total"><div class="box"><span>計</span><span class="amt">${yen(sum)}</span></div></div>
+    ${bk?`<div class="biko"><span class="lb">備考</span><span class="tx">${esc(bk)}</span></div>`:""}
   </div></div>`;
   fitSheets(); schedulePdf("itaku");
 }
@@ -877,7 +893,8 @@ function renderJuryo(){
   document.getElementById("juryoOut").innerHTML= hasRows? `<div class="scaler"><div class="sheet">
     <h1 class="doc-title"><span>委託商品受領書</span></h1>
     <div class="issuer"><div>${ymdJ(date)}</div>
-      <div class="addr">${ISSUER.addr}</div><div class="corp">${ISSUER.corp}</div></div>
+      <div class="addr">${ISSUER.addr}</div><div class="corp">${ISSUER.corp}</div>
+      ${staffName()?`<div class="staff">担当：${esc(staffName())}</div>`:""}</div>
     <div class="addressee"><div class="nm">${esc(S.worker[1])} 様</div>
       <div class="ct">${ (S.worker[2]||S.worker[3])
           ? esc(S.worker[2])+"<br>"+esc(S.worker[3])
@@ -941,8 +958,9 @@ async function buildPdf(kind){
 
 function pdfKey(kind){
   const no=document.getElementById("slipNo").value||NEXT_NO;
-  return kind+"|"+no+"|"+(S.worker?S.worker[0]:"")+"|"+JSON.stringify(S.cart)
-    +"|"+(kind==="juryo"?JSON.stringify(delivRows())+document.getElementById("jryDate").value:document.getElementById("hikiwatasi").value);
+  return kind+"|"+no+"|"+(S.worker?S.worker[0]:"")+"|"+JSON.stringify(S.cart)+"|"+staffName()
+    +"|"+(kind==="juryo"?JSON.stringify(delivRows())+document.getElementById("jryDate").value
+                        :document.getElementById("hikiwatasi").value+"|"+noukiVal()+"|"+bikoVal());
 }
 function preparePdf(kind){
   const key=pdfKey(kind), c=PDFC[kind];
@@ -1165,7 +1183,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-28 14:10";
+const APP_VER="2026-10-31 10:30";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
@@ -1275,6 +1293,8 @@ function odClearFolder(){ OD.folder=null; ST.set("odFolder",null); drawSettings(
 /* この端末の担当者。伝票に「誰が切ったか」を残すために使う。
    共用アカウントの端末でも、端末ごとに名前を入れておけば区別できる。 */
 function staffName(){ return ST.get("staff","") || ""; }
+function noukiVal(){ const e=document.getElementById("nouki"); return e?e.value:""; }
+function bikoVal(){ const e=document.getElementById("biko"); return e?(e.value||"").trim():""; }
 
 /* ---------- 商品マスタ ----------
    ファイルに焼き付けてある PRODUCTS は、つながらないときの予備。
@@ -1463,6 +1483,8 @@ function currentSlip(){
     deliveries: (S.deliveries||[]).map(d=>({...d})),   // 納入1回ぶんずつの記録
     exported: S.exported||"",
     staff: staffName(),                 // この端末の担当者（誰が切った伝票か）
+    nouki: noukiVal(),                  // 希望納期（任意。委託伝票にだけ出る）
+    biko: bikoVal(),                    // 備考（任意。委託伝票にだけ出る）
     updated: new Date().toISOString()
   };
 }
@@ -1527,6 +1549,8 @@ function openSlip(i){
   S.deliveries=(sl.deliveries||[]).map(d=>({...d})); S.exported=sl.exported||""; S.viewDate=null;
   document.getElementById("slipNo").value=sl.no;
   document.getElementById("hikiwatasi").value=sl.hikiwatasi;
+  document.getElementById("nouki").value=sl.nouki||"";
+  document.getElementById("biko").value=sl.biko||"";
   document.getElementById("whoLabel").innerHTML=`<span class="pill">${esc(S.worker[1])} 様</span>`;
   document.getElementById("slipList").hidden=true;
   drawCart(); drawDelivery(); renderJuryo();
@@ -1537,6 +1561,7 @@ function newSlip(){
   S.worker=null; S.cart=[]; S.delivered={}; S.closed={}; S.deliveries=[]; S.exported=""; S.viewDate=null;
   document.getElementById("slipNo").value=nextSlipNo();
   document.getElementById("hikiwatasi").value=iso(new Date());
+  document.getElementById("nouki").value=""; document.getElementById("biko").value="";
   document.getElementById("jryDate").value=iso(new Date());
   document.getElementById("wq").value=""; document.getElementById("pq").value="";
   document.getElementById("whoLabel").innerHTML="";
