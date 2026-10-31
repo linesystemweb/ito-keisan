@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-31 v14';
+  const APP_VER     = '2026-10-31 v15';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -851,6 +851,31 @@
     if(basis.length) lines.push('【単価の根拠】', basis.join('\n'));
     lines.push('承認はこちら ' + location.origin + location.pathname);
     return lines.join('\n');
+  }
+  // 注文書が増えるたびに、承認者（共通の通知先）へ今月の発注を一覧で送る
+  function monthlyReport(order){
+    const p = jstParts(new Date());
+    const ym = p ? (p.year + '-' + p.month) : today().slice(0, 7);
+    const mine = orders.filter(o => String(o.date || '').slice(0, 7) === ym
+                                 && o.status !== 'rejected' && !isTestOrder(o));
+    if(!mine.some(o => o.id === order.id)) mine.push(order);
+    mine.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
+                     || String(a.no || '').localeCompare(String(b.no || '')));
+    let total = 0;
+    const rows = mine.map(o => {
+      const g = orderTotals(o).gross;
+      total += g;
+      const d = String(o.date || '').slice(5).replace('-', '/');
+      return d + '　' + (o.no || '（番号待ち）') + '　' + o.supplier + '　' + yen(g);
+    });
+    const shown = rows.length > 20 ? rows.slice(-20) : rows;   // 多いときは新しい20件
+    const omit  = rows.length - shown.length;
+    const head = '注文書が増えました　' + (order.no || '') + '　' + order.supplier
+               + '　' + yen(orderTotals(order).gross);
+    const out = [head, (p ? (+p.month) : '今') + '月の発注'].concat(shown);
+    if(omit > 0) out.push('…ほか' + omit + '件');
+    out.push('合計 ' + mine.length + '件　' + yen(total));
+    return out.join('\n');
   }
   function historyFor(hit){
     const k = itemKey(hit);
@@ -1179,6 +1204,8 @@
       el('saveMsg').textContent = ok ? `${order.no} で登録しました。` : '保存できませんでした（閲覧のみの可能性があります）。';
     }
     if(ok){
+      // 社長（共通の通知先）へ、今月の発注を一覧で知らせる。テスト用の注文は送らない。
+      if(!isTestOrder(order)){ try{ await notify(monthlyReport(order)); }catch(e){} }
       // 仮登録にチェックの入った行を品目マスタへ
       for(const l of lines.filter(x=>x.register && x.name)){
         const item = {s:el('f-sup').value, c:l.code||('TMP-'+Date.now().toString(36).slice(-4)), n:l.name,
