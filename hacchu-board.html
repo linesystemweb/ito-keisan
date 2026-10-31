@@ -379,7 +379,7 @@
       </div>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>発注No</th><th>副発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th>社内メモ</th><th class="num">明細</th><th class="num">税込金額</th><th>状態</th><th>FAX送信</th><th></th></tr></thead>
+          <thead><tr><th>発注No</th><th>副発注No</th><th>発注日</th><th>発注者</th><th>仕入先</th><th>社内メモ</th><th class="num">明細</th><th class="num">税込金額</th><th>状態</th><th>送信</th><th></th></tr></thead>
           <tbody id="listBody"></tbody>
         </table>
       </div>
@@ -559,7 +559,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-31 v12';
+  const APP_VER     = '2026-10-31 v13';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -694,6 +694,7 @@
       Object.keys(t).forEach(function(k){ if(k.indexOf('hook:') === 0) staffHooks[k] = t[k]; });
       orders.forEach(function(o){
         o.faxSentAt = t['faxsent:' + o.id] || '';
+        o.mailSentAt = t['mailsent:' + o.id] || '';
         const raw = t['req:' + o.id];
         if(!raw) return;
         try{ const j = JSON.parse(raw); o.reason = j.r || ''; o.refs = j.u || []; }catch(e){}
@@ -789,6 +790,27 @@
     const s = suppliers().find(x => x.n === name);
     return !!(s && String(s.send).toLowerCase() === 'fax' && String(s.fax||'').replace(/[^0-9]/g,''));
   }
+  // メールの仕入先か（既定の送信がFAXでなく、送信先メールが入っている）
+  function isMailSupplier(name){
+    const s = suppliers().find(x => x.n === name);
+    return !!(s && String(s.send||'mail').toLowerCase() !== 'fax' && String(s.mail||'').trim());
+  }
+  // 備考か社内メモに「テスト」と書いてあれば、FAXもメールも自動送信しない
+  function isTestOrder(o){
+    return /テスト|ﾃｽﾄ|test/i.test(String(o.note||'') + ' ' + String(o.memo||''));
+  }
+  // メールの下書きを保管サーバに預ける。送るのは保管サーバ側（5分後）。
+  async function storeMailQ(o){
+    if(!isMailSupplier(o.supplier)) return false;
+    const m = mailParts(o);
+    if(!m.to) return false;
+    const html = orderBodyHtml(o);
+    if(html.length > 45000) return false;
+    const r = await api('putSetting', { key: 'mailq:' + o.id, value: JSON.stringify({
+      to: m.to, cc: m.cc || '', subject: m.subject, html: html, at: new Date().toISOString()
+    })});
+    return !!(r && r.ok);
+  }
   function faxStandaloneHtml(o){
     showSheet(o);
     return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>'
@@ -862,11 +884,17 @@
     const sup = suppliers().find(s => s.n === el('f-sup').value);
     return {code:'',name:'',size:'',color:'',form:'',pack:'',qty:'',unit:'',price:'',cur:(sup&&sup.cur)||'JPY',due:'',register:false};
   }
+  // スマホ用の作り直しと重なると innerHTML が一瞬失敗することがあるので、
+  // 失敗したら中身を空にしてから入れ直す
+  function setHtml(node, html){
+    try { node.innerHTML = html; }
+    catch(e){ try { node.replaceChildren(); node.innerHTML = html; } catch(e2){} }
+  }
   function renderLines(){
     const cols = activeCols();
-    el('lineHead').innerHTML = '<th class="rowno"></th>' + cols.map(c=>`<th${c.num?' class="num"':''} style="min-width:${c.w}">${c.t}</th>`).join('')
-      + '<th style="min-width:56px">登録</th><th class="num" style="min-width:90px">金額</th><th></th>';
-    el('lineBody').innerHTML = lines.map((ln,i)=>{
+    setHtml(el('lineHead'), '<th class="rowno"></th>' + cols.map(c=>`<th${c.num?' class="num"':''} style="min-width:${c.w}">${c.t}</th>`).join('')
+      + '<th style="min-width:56px">登録</th><th class="num" style="min-width:90px">金額</th><th></th>');
+    setHtml(el('lineBody'), lines.map((ln,i)=>{
       const cells = cols.map(c=>{
         if(c.k==='cur') return `<td data-l="${c.t}"><select data-i="${i}" data-k="cur"><option value="JPY"${ln.cur==='JPY'?' selected':''}>円</option><option value="USD"${ln.cur==='USD'?' selected':''}>US$</option></select></td>`;
         const list = c.k==='code' ? ' list="codeList"' : c.k==='name' ? ' list="nameList"'
@@ -880,7 +908,7 @@
         <td data-l="マスタに登録" style="text-align:center"><input type="checkbox" data-i="${i}" data-k="register" ${ln.register?'checked':''} style="width:auto" title="マスタに仮登録する"></td>
         <td class="num" data-l="金額">${ln.cur==='USD' ? (amt?('US$'+amt.toLocaleString('ja-JP')):'—') : yen(amt)}</td>
         <td class="delcell"><button class="btn quiet small" data-del="${i}">削除</button></td></tr>`;
-    }).join('');
+    }).join(''));
     totals();
   }
   function lineAmount(ln){
@@ -1155,11 +1183,18 @@
         await saveDoc('items_custom','i'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), item);
       }
       showSheet(order);
-      if(isFaxSupplier(order.supplier)){
+      if(isTestOrder(order)){
+        el('saveMsg').textContent += '　備考に「テスト」とあるので、自動送信はしません。';
+      } else if(isFaxSupplier(order.supplier)){
         const put = await storeFaxHtml(order);
         if(put) el('saveMsg').textContent += order.status === 'pending'
           ? '　承認されると自動でFAX送信されます。'
           : '　まもなく自動でFAX送信されます。';
+      } else if(isMailSupplier(order.supplier)){
+        const put = await storeMailQ(order);
+        if(put) el('saveMsg').textContent += order.status === 'pending'
+          ? '　承認されると自動でメール送信されます。'
+          : '　5分後に自動でメール送信されます。';
       }
       el('f-reason').value = ''; el('f-refs').value = '';
       lines = [blankLine()];
@@ -1286,7 +1321,8 @@
         <td>${o.status==='pending'?'<span class="pill warn">承認待ち</span>':o.status==='rejected'?'<span class="pill bad">差し戻し</span>':
           (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}
         </td>
-        <td class="tiny">${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">${esc(jmdhm(o.faxSentAt))}</span>`:''}</td>
+        <td class="tiny">${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">FAX ${esc(jmdhm(o.faxSentAt))}</span>`
+          :(o.mailSentAt?`<span class="pill ok" title="${esc(jdatetime(o.mailSentAt))}">メール ${esc(jmdhm(o.mailSentAt))}</span>`:'')}</td>
         <td><button class="btn quiet small" data-open="${esc(o.id)}">開く</button></td></tr>`;
     }).join('');
   }
@@ -1297,6 +1333,7 @@
     el('detail').innerHTML = `<div class="row"><h2 style="margin:0">${esc(o.no)}　${esc(o.supplier)}</h2>
         <span class="tiny muted">${esc(jdate(o.date))}／${esc(o.staff)}／納入先 ${esc(o.to)}</span>
         ${o.faxSentAt?`<span class="pill ok">FAX送信済み ${esc(jdatetime(o.faxSentAt))}</span>`:''}
+        ${o.mailSentAt?`<span class="pill ok">メール送信済み ${esc(jdatetime(o.mailSentAt))}</span>`:''}
         <button class="btn quiet small right" id="sheetBtn">注文書を見る</button></div>
       <div class="row" style="margin-top:10px;align-items:flex-end">
         <label class="field" style="max-width:200px"><span>副発注No.（先方の番号）</span>
@@ -1316,6 +1353,7 @@
         <button class="btn quiet small" data-savereq="${esc(o.id)}">理由と資料を保存</button>
         ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
         ${isFaxSupplier(o.supplier) ? `<button class="btn quiet small" data-faxreg="${esc(o.id)}">この注文書を自動FAXに載せる</button>` : ''}
+        ${isMailSupplier(o.supplier) && !o.mailSentAt ? `<button class="btn quiet small" data-mailreg="${esc(o.id)}">この注文書を自動メールに載せる</button>` : ''}
         <span class="tiny muted" id="d-msg2"></span>
       </div>
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
@@ -1871,6 +1909,17 @@
       const okp = await saveDoc('orders', o.id, o);
       if(okp){ renderAll(); renderDetail(oid); }
       el('d-msg2').textContent = okp ? '単価を入れました。金額と支払予定に反映しています。' : '保存できませんでした。';
+      return;
+    }
+    const mid = e.target.dataset.mailreg;
+    if(mid){
+      const o = orders.find(x=>x.id===mid); if(!o) return;
+      if(isTestOrder(o)){ el('d-msg2').textContent = '備考に「テスト」とあるので、自動送信はしません。'; return; }
+      el('d-msg2').textContent = 'メールの下書きを控えています…';
+      const put = await storeMailQ(o);
+      el('d-msg2').textContent = put
+        ? '自動メールに載せました。' + (o.status === 'pending' ? '承認されると送信されます。' : '5分後に送信されます。')
+        : '載せられませんでした（メールの仕入先でないか、送信先メールが未登録です）。';
       return;
     }
     const fid = e.target.dataset.faxreg;
