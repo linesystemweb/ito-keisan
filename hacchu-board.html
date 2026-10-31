@@ -559,7 +559,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-30 v11';
+  const APP_VER     = '2026-10-31 v12';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
@@ -1189,17 +1189,18 @@
   function showSheet(o){
     shownOrder = o;
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
-    let net = 0;
+    let net = 0, askPrice = 0;          // askPrice＝単価未定のまま出す行数
     // 荷姿・納期は入っている注文のときだけ列を出す（空の列で紙を汚さないため）
     const hasPack = o.lines.some(l=>String(l.pack||'').trim());
     const hasDue  = o.lines.some(l=>String(l.due||'').trim());
     const rows = o.lines.map(l=>{
       const amt = (l.qty!=null && l.price!=null) ? l.qty*l.price : null;
       if(amt!=null && l.cur!=='USD') net += amt;
+      if(l.price==null) askPrice++;
       return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join(' '))}</td>
         ${hasPack?`<td>${esc(l.pack||'')}</td>`:''}
         <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
-        <td style="text-align:right">${l.price==null?'—':(l.cur==='USD'?'US$':'')+numf(l.price)}</td>
+        <td style="text-align:right">${l.price==null?'ご提示ください':(l.cur==='USD'?'US$':'')+numf(l.price)}</td>
         <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>
         ${hasDue?`<td>${esc(l.due||'')}</td>`:''}</tr>`;
     }).join('');
@@ -1231,6 +1232,7 @@
           <div>税抜小計 ${yen(net)}</div>
           <div>消費税 10% ${yen(tax)}</div>
           <div style="border:2px solid #111;padding:6px 12px;margin-top:6px;font-weight:700;font-size:25px">税込合計 ${yen(net+tax)}</div>
+          ${askPrice?`<div style="margin-top:6px;font-size:13px">※単価未定の明細が${askPrice}行あります。<br>上記合計は確定ではありません。</div>`:''}
         </div>
       </div>
       <p style="margin-top:12px;text-align:center">納品書及び送り状に発注者名を明記してください。</p>`;
@@ -1321,7 +1323,9 @@
         return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join(' '))}</td>
         <td class="num">${numf(l.qty)}${esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
         <td class="num">${l.closed?'<span class="pill">打切り</span>':(r.over?`<span class="pill warn">+${numf(r.over)}</span>`:numf(r.rest))}</td>
-        <td class="num">${p==null?'<span class="pill bad">未定</span>':(l.cur==='USD'?'US$':'¥')+numf(p)}${(l.priceLog||[]).length?' <span class="pill warn">訂正あり</span>':''}</td>
+        <td class="num">${p==null
+          ? `<span class="row" style="gap:4px;justify-content:flex-end"><input inputmode="decimal" style="width:84px" placeholder="${l.cur==='USD'?'US$':'単価'}" data-lp="${esc(o.id)}:${l.no}"><button class="btn small" data-lpsave="${esc(o.id)}:${l.no}">入れる</button></span>`
+          : (l.cur==='USD'?'US$':'¥')+numf(p)}${(l.priceLog||[]).length?' <span class="pill warn">あとから入力</span>':''}</td>
         <td>${l.closed?'打切り':(r.rest===0?'完了':(r.got?'一部入荷':'未入荷'))}</td></tr>`;}).join('')}
       </tbody></table></div>
       <div class="row" style="margin-top:10px"><span class="tiny muted">税抜 ${yen(t.net)}／消費税 ${yen(t.tax)}／税込 ${yen(t.gross)}${t.usd?`／US$${numf(Math.round(t.usd))}`:''}</span></div>`;
@@ -1347,6 +1351,7 @@
         <input type="date" style="width:140px" data-rd="${esc(o.id)}:${l.no}" value="${today()}">
         <input inputmode="decimal" style="width:80px" placeholder="数量" data-rq="${esc(o.id)}:${l.no}" value="${r.rest}">
         ${l.cur==='USD'?`<input inputmode="decimal" style="width:80px" placeholder="レート" data-rr="${esc(o.id)}:${l.no}">`:''}
+        ${(l.priceFixed ?? l.price)==null?`<input inputmode="decimal" style="width:80px" placeholder="単価" data-rp="${esc(o.id)}:${l.no}">`:''}
         <button class="btn small" data-rsave="${esc(o.id)}:${l.no}">登録</button>
         <button class="btn quiet small" data-rclose="${esc(o.id)}:${l.no}">打切り</button>
       </div></td></tr>`).join('') || '<tr><td colspan="8" class="muted tiny">未入荷の明細はありません。</td></tr>';
@@ -1355,6 +1360,15 @@
     const [id, no] = key.split(':');
     const o = orders.find(x=>x.id===id); if(!o) return;
     const l = o.lines.find(x=>String(x.no)===no); if(!l) return;
+    // 納品書に単価が書いてあることが多いので、ここでも入れられるようにしてある
+    const pBox = document.querySelector('[data-rp="'+key+'"]');
+    if(pBox && String(pBox.value).trim() !== ''){
+      const pv = parseFloat(pBox.value);
+      if(!isNaN(pv) && pv >= 0){
+        l.price = pv; l.priceFixed = pv;
+        l.priceLog = (l.priceLog||[]).concat([{p:pv, by: meStaff().n, at: new Date().toISOString()}]);
+      }
+    }
     if(close){ l.closed = true; }
     else{
       const q = parseFloat(document.querySelector(`[data-rq="${key}"]`).value);
@@ -1759,15 +1773,17 @@
     let net = 0;
     const hasPack = o.lines.some(l=>String(l.pack||'').trim());
     const hasDue  = o.lines.some(l=>String(l.due||'').trim());
+    let askPrice = 0;
     const rows = o.lines.filter(l=>l.name).map(l=>{
       const p = l.priceFixed ?? l.price;
       const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       if(amt!=null && l.cur!=='USD') net += amt;
+      if(p==null) askPrice++;
       const spec = [l.size,l.color,l.form].filter(Boolean).join(' ');
       return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
         + (hasPack?'<td>'+esc(l.pack||'')+'</td>':'')
         + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
-        + '<td>'+(p==null?'—':(l.cur==='USD'?'US$':'')+numf(p))+'</td>'
+        + '<td>'+(p==null?'ご提示ください':(l.cur==='USD'?'US$':'')+numf(p))+'</td>'
         + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td>'
         + (hasDue?'<td>'+esc(l.due||'')+'</td>':'')+'</tr>';
     }).join('');
@@ -1783,7 +1799,8 @@
       + (o.note?'<p><b>'+esc(o.note)+'</b></p>':'')
       + '<table><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>'+(hasPack?'<th>荷姿</th>':'')+'<th>数量</th><th>単位</th><th>単価</th><th>金額</th>'+(hasDue?'<th>納期・着指定</th>':'')+'</tr>'
       + rows + '</table>'
-      + '<p>税抜小計 '+yen(net)+'<br>消費税10% '+yen(tax)+'<br><b>税込合計 '+yen(net+tax)+'</b></p>'
+      + '<p>税抜小計 '+yen(net)+'<br>消費税10% '+yen(tax)+'<br><b>税込合計 '+yen(net+tax)+'</b>'
+      + (askPrice?'<br>※単価未定の明細が'+askPrice+'行あります。上記合計は確定ではありません。':'')+'</p>'
       + '<p>納品書および送り状に発注者名を明記してください。</p>'
       + '<hr><p>株式会社ラインシステム　'+esc(o.staff)+'<br>'
       + '〒630-8453 奈良市西九条町2-5-10<br>TEL 0742-64-7555／FAX 0742-64-7556</p>';
@@ -1836,6 +1853,24 @@
         value: JSON.stringify({ r: o.reason, u: o.refs }) });
       if(r && r.ok){ await loadAll(); renderDetail(rid); el('d-msg2').textContent = '保存しました。'; }
       else el('d-msg2').textContent = '保存できませんでした。';
+      return;
+    }
+    // 単価未定のまま起こした行に、あとから単価を入れる
+    const lp = e.target.dataset.lpsave;
+    if(lp){
+      const [oid, lno] = lp.split(':');
+      const o = orders.find(x=>x.id===oid); if(!o) return;
+      const l = o.lines.find(x=>String(x.no)===lno); if(!l) return;
+      const box = document.querySelector('[data-lp="'+lp+'"]');
+      const v = parseFloat(box ? box.value : '');
+      if(isNaN(v) || v < 0){ el('d-msg2').textContent = '単価を数字で入れてください。'; return; }
+      l.price = v; l.priceFixed = v;
+      l.priceLog = (l.priceLog||[]).concat([{p:v, by: meStaff().n, at: new Date().toISOString()}]);
+      o.updatedAt = new Date().toISOString();
+      el('d-msg2').textContent = '保存しています…';
+      const okp = await saveDoc('orders', o.id, o);
+      if(okp){ renderAll(); renderDetail(oid); }
+      el('d-msg2').textContent = okp ? '単価を入れました。金額と支払予定に反映しています。' : '保存できませんでした。';
       return;
     }
     const fid = e.target.dataset.faxreg;
