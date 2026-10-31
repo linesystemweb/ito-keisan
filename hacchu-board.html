@@ -336,6 +336,7 @@
           <option value="on">使う（承認してから送信）</option>
         </select></label>
         <label class="field"><span>承認者</span><select id="ap-who"></select></label>
+        <label class="field"><span>承認者の表示名（通知に出る名前）</span><input id="ap-name" placeholder="例 琴浦社長"></label>
         <label class="field"><span>この金額を超えたら承認（税込・0なら全件）</span><input id="ap-th" inputmode="numeric" value="100000"></label>
         <label class="field span2"><span>Teamsの通知先（ワークフローのWebhook URL・空なら通知しない）</span><input id="ap-chat" placeholder="https://prod-00.japaneast.logic.azure.com/..."></label>
         <label class="field"><span>注文メールの差出人（共有アドレス）</span><input id="ap-from" placeholder="例 fishing2@linesystem.jp" value="fishing2@linesystem.jp"></label>
@@ -559,10 +560,10 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-31 v13';
+  const APP_VER     = '2026-10-31 v14';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
-  let settings = {kind:'approval', useApproval:true, approver:'KO', threshold:100000,
+  let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
                   chatId:'', chatName:'', fromAddr:'fishing2@linesystem.jp'};
   let pca = null, account = null, token = '';
 
@@ -643,6 +644,7 @@
     else if(coll === 'settings'){
       const pairs = [['useApproval', value.useApproval ? 'TRUE' : 'FALSE'],
                      ['approver',    value.approver || ''],
+                     ['approverName',value.approverName || ''],
                      ['threshold',   value.threshold || 0],
                      ['fromAddr',    value.fromAddr || ''],
                      ['teamsWebhook',value.chatId || '']];
@@ -684,6 +686,7 @@
         kind: 'approval',
         useApproval: String(t.useApproval).toUpperCase() !== 'FALSE' && t.useApproval !== false,
         approver: t.approver || 'KO',
+        approverName: t.approverName || '',
         threshold: Number(t.threshold) || 0,
         chatId: t.teamsWebhook || '',
         chatName: '',
@@ -939,7 +942,7 @@
     if(need){
       const money = th >= 10000 ? (th/10000) + '万円' : th.toLocaleString('ja-JP') + '円';
       el('apReqWhy').textContent = th > 0
-        ? '税込' + money + 'を超えるので、' + (settings.approver ? (staffList().find(s=>s.i===settings.approver)||{n:'承認者'}).n : '承認者') + 'さんの承認待ちになります。'
+        ? '税込' + money + 'を超えるので、' + approverLabel() + 'の承認待ちになります。'
         : 'この設定では全件が承認待ちになります。';
     }
   }
@@ -1144,7 +1147,7 @@
       reason: el('f-reason').value.trim(),
       refs: el('f-refs').value.split(/[\s　]*\n[\s　]*/).map(x=>x.trim()).filter(Boolean),
       status:'sent', createdAt: new Date().toISOString(),
-      approver: settings.useApproval ? (staffList().find(s=>s.i===settings.approver)||{}).n : '',
+      approver: settings.useApproval ? approverLabel() : '',
       lines: lines.filter(l=>l.name).map((l,idx)=>({
         no: idx+1, code:l.code, name:l.name, size:l.size, color:l.color, form:l.form, pack:l.pack,
         qty: parseFloat(l.qty)||0, unit:l.unit, price: l.price===''?null:parseFloat(l.price),
@@ -1527,6 +1530,7 @@
     el('ap-on').value = settings.useApproval ? 'on' : 'off';
     el('ap-th').value = settings.threshold || 0;
     fillSelect(el('ap-who'), staffList().map(s=>({v:s.i, t:s.n})), settings.approver || 'KO');
+    if(el('ap-name')) el('ap-name').value = settings.approverName || '';
     el('ap-chat').value = settings.chatId || '';
     el('ap-from').value = settings.fromAddr || '';
     const th = Number(settings.threshold) || 0;
@@ -1542,6 +1546,13 @@
           ? (th > 0 ? ('税込' + (th>=10000 ? (th/10000) + '万円' : th.toLocaleString('ja-JP') + '円') + 'を超えると承認待ちになります。')
                     : 'すべて承認待ちになります。')
           : '承認は使わない設定です。');
+  }
+  // 通知や注文書に出す承認者の名前。設定の「承認者の表示名」が最優先。
+  function approverLabel(){
+    const n = String(settings.approverName || '').trim();
+    if(n) return n;
+    const s = staffList().find(x => x.i === settings.approver);
+    return (s && s.n) || '承認者';
   }
   function needsApproval(order){
     if(!settings.useApproval) return false;
@@ -1593,22 +1604,25 @@
     }
   }
   async function decide_(id, approve, o){
-    const me = meStaff();
+    const who = approverLabel();
     const t = orderTotals(o);
     if(approve){
-      o.status = 'approved'; o.approvedBy = me.n; o.approvedAt = new Date().toISOString();
+      o.status = 'approved'; o.approvedBy = who; o.approvedAt = new Date().toISOString();
     } else {
       const why = (el('ap-msg').dataset.why || '').trim();
-      o.status = 'rejected'; o.rejectedBy = me.n; o.rejectedAt = new Date().toISOString();
+      o.status = 'rejected'; o.rejectedBy = who; o.rejectedAt = new Date().toISOString();
       o.rejectReason = why;
     }
     const saved = await saveDoc('orders', o.id, o);
     if(!saved){ el('ap-msg').textContent = '保存できませんでした。画面を開き直して、もう一度試してください。'; return; }
-    const line = approve
-      ? `✅ 発注 ${o.no}（${o.supplier}・${yen(t.gross)}）を ${me.n} が承認しました。${o.staff}さん、送信してください。`
-      : `↩️ 発注 ${o.no}（${o.supplier}・${yen(t.gross)}）を ${me.n} が差し戻しました。${o.staff}さん、内容を見直してください。`;
-    const sent = await notify(line);
-    el('ap-msg').textContent = sent ? 'Teamsに通知しました。' : (settings.chatId ? '通知を送れませんでした。' : '');
+    if(approve){
+      // 承認のお知らせは出さない。送信できたときに1通だけ通知する。
+      el('ap-msg').textContent = `発注 ${o.no} を承認しました。このあと自動で送信され、送信できたらTeamsにお知らせが届きます。`;
+    } else {
+      const line = `↩️ 発注 ${o.no}（${o.supplier}・${yen(t.gross)}）を ${who} が差し戻しました。${o.staff}さん、内容を見直してください。`;
+      const sent = await notify(line);
+      el('ap-msg').textContent = sent ? 'Teamsに通知しました。' : (settings.chatId ? '通知を送れませんでした。' : '差し戻しました。');
+    }
     renderAll();
   }
 
@@ -2031,6 +2045,7 @@
   applySettings();
   el('ap-save').onclick = async ()=>{
     settings = {kind:'approval', useApproval: el('ap-on').value === 'on', approver: el('ap-who').value,
+      approverName: (el('ap-name') ? el('ap-name').value.trim() : ''),
       threshold: parseFloat(el('ap-th').value) || 0, chatId: el('ap-chat').value.trim(),
       chatName: '',
       fromAddr: el('ap-from').value.trim()};
