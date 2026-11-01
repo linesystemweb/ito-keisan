@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-10-31 v15';
+  const APP_VER     = '2026-11-02 v16';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1162,6 +1162,17 @@
 
   async function saveOrder(){
     if(!lines.some(l => l.name && l.qty)){ el('saveMsg').textContent='品名と数量が入った行がありません。'; return; }
+    // 品名は入っているのに数量が空・0の行があると、金額が0のまま注文書が出てしまう
+    const noQty = lines.filter(l => l.name && !(parseFloat(l.qty) > 0));
+    if(noQty.length){
+      el('saveMsg').textContent = '数量が入っていない行があります（'
+        + noQty.map(l => l.name).join('、')
+        + '）。数量を入れてから登録してください。数量が要らない行は、品名を消してください。';
+      const i = lines.indexOf(noQty[0]);
+      const box = document.querySelector('[data-i="' + i + '"][data-k="qty"]');
+      if(box) box.focus();
+      return;
+    }
     const staff = meStaff();
     const id = 'o'+Date.now().toString(36);
     const order = {
