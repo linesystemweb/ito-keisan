@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-02 v16';
+  const APP_VER     = '2026-11-02 v17';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1367,10 +1367,12 @@
         <td><button class="btn quiet small" data-open="${esc(o.id)}">開く</button></td></tr>`;
     }).join('');
   }
+  let fixing = null;                      // 明細を直している注文のID
   function renderDetail(id){
     const o = orders.find(x=>x.id===id);
     if(!o){ el('detailCard').hidden = true; return; }
     const t = orderTotals(o);
+    const fix = (fixing === o.id);
     el('detail').innerHTML = `<div class="row"><h2 style="margin:0">${esc(o.no)}　${esc(o.supplier)}</h2>
         <span class="tiny muted">${esc(jdate(o.date))}／${esc(o.staff)}／納入先 ${esc(o.to)}</span>
         ${o.faxSentAt?`<span class="pill ok">FAX送信済み ${esc(jdatetime(o.faxSentAt))}</span>`:''}
@@ -1395,16 +1397,23 @@
         ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
         ${isFaxSupplier(o.supplier) ? `<button class="btn quiet small" data-faxreg="${esc(o.id)}">この注文書を自動FAXに載せる</button>` : ''}
         ${isMailSupplier(o.supplier) && !o.mailSentAt ? `<button class="btn quiet small" data-mailreg="${esc(o.id)}">この注文書を自動メールに載せる</button>` : ''}
+        ${fix ? `<button class="btn small" data-fixsave="${esc(o.id)}">直して保存</button>
+                 <button class="btn quiet small" data-fixoff="${esc(o.id)}">やめる</button>`
+              : `<button class="btn quiet small" data-fixon="${esc(o.id)}">明細を直す</button>`}
         <span class="tiny muted" id="d-msg2"></span>
       </div>
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;
         return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join(' '))}</td>
-        <td class="num">${numf(l.qty)}${esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
+        <td class="num">${fix
+          ? `<input inputmode="decimal" style="width:90px;text-align:right" data-fq="${esc(o.id)}:${l.no}" value="${esc(String(l.qty))}">${esc(l.unit)}`
+          : numf(l.qty)+esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
         <td class="num">${l.closed?'<span class="pill">打切り</span>':(r.over?`<span class="pill warn">+${numf(r.over)}</span>`:numf(r.rest))}</td>
-        <td class="num">${p==null
-          ? `<span class="row" style="gap:4px;justify-content:flex-end"><input inputmode="decimal" style="width:84px" placeholder="${l.cur==='USD'?'US$':'単価'}" data-lp="${esc(o.id)}:${l.no}"><button class="btn small" data-lpsave="${esc(o.id)}:${l.no}">入れる</button></span>`
-          : (l.cur==='USD'?'US$':'¥')+numf(p)}${(l.priceLog||[]).length?' <span class="pill warn">あとから入力</span>':''}</td>
+        <td class="num">${fix
+          ? `<input inputmode="decimal" style="width:90px;text-align:right" placeholder="${l.cur==='USD'?'US$':'単価'}" data-fp="${esc(o.id)}:${l.no}" value="${p==null?'':esc(String(p))}">`
+          : (p==null
+            ? `<span class="row" style="gap:4px;justify-content:flex-end"><input inputmode="decimal" style="width:84px" placeholder="${l.cur==='USD'?'US$':'単価'}" data-lp="${esc(o.id)}:${l.no}"><button class="btn small" data-lpsave="${esc(o.id)}:${l.no}">入れる</button></span>`
+            : (l.cur==='USD'?'US$':'¥')+numf(p))}${(l.priceLog||[]).length?' <span class="pill warn">あとから入力</span>':''}${(l.fixLog||[]).length?' <span class="pill warn">訂正あり</span>':''}</td>
         <td>${l.closed?'打切り':(r.rest===0?'完了':(r.got?'一部入荷':'未入荷'))}</td></tr>`;}).join('')}
       </tbody></table></div>
       <div class="row" style="margin-top:10px"><span class="tiny muted">税抜 ${yen(t.net)}／消費税 ${yen(t.tax)}／税込 ${yen(t.gross)}${t.usd?`／US$${numf(Math.round(t.usd))}`:''}</span></div>`;
@@ -1920,7 +1929,72 @@
   };
   ['l-staff','l-sup','l-status'].forEach(id => el(id).onchange = renderList);
   el('listBody').addEventListener('click', e=>{ const id = e.target.dataset.open; if(id) renderDetail(id); });
+  // 登録したあとで数量や単価を直す
+  async function saveFix(oid){
+    const o = orders.find(x=>x.id===oid); if(!o) return;
+    const msg = el('d-msg2');
+    const changes = [];
+    const now = new Date().toISOString();
+    const by = meStaff().n;
+    for(const l of o.lines){
+      const qb = document.querySelector('[data-fq="'+oid+':'+l.no+'"]');
+      if(qb){
+        const q = parseFloat(qb.value);
+        if(isNaN(q) || q < 0){ msg.textContent = l.name + ' の数量を数字で入れてください。'; return; }
+        const got = remaining(l).got;
+        if(q < got){ msg.textContent = l.name + ' は入荷済み ' + numf(got) + ' があるので、それより少なくはできません。'; return; }
+        if(q !== l.qty){
+          changes.push(l.name + ' 数量 ' + numf(l.qty) + '→' + numf(q));
+          l.fixLog = (l.fixLog||[]).concat([{k:'qty', from:l.qty, to:q, by:by, at:now}]);
+          l.qty = q;
+        }
+      }
+      const pb = document.querySelector('[data-fp="'+oid+':'+l.no+'"]');
+      if(pb){
+        const v = String(pb.value).trim();
+        const cur = l.priceFixed ?? l.price;
+        if(v === ''){
+          if(cur != null){
+            changes.push(l.name + ' 単価 ' + numf(cur) + '→未定');
+            l.fixLog = (l.fixLog||[]).concat([{k:'price', from:cur, to:null, by:by, at:now}]);
+            l.price = null; l.priceFixed = null;
+          }
+        } else {
+          const pv = parseFloat(v);
+          if(isNaN(pv) || pv < 0){ msg.textContent = l.name + ' の単価を数字で入れてください。'; return; }
+          if(pv !== cur){
+            changes.push(l.name + ' 単価 ' + (cur==null?'未定':numf(cur)) + '→' + numf(pv));
+            l.fixLog = (l.fixLog||[]).concat([{k:'price', from:cur, to:pv, by:by, at:now}]);
+            l.price = pv; l.priceFixed = pv;
+          }
+        }
+      }
+    }
+    if(!changes.length){ fixing = null; renderDetail(oid); return; }
+    msg.textContent = '保存しています…';
+    o.updatedAt = now;
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok){ msg.textContent = '保存できませんでした。'; return; }
+    const o2 = orders.find(x=>x.id===oid) || o;
+    let extra = '';
+    if(isFaxSupplier(o2.supplier)){
+      if(o2.faxSentAt) extra = '　この注文書はもうFAX済みです。訂正版を送る場合は「注文書を見る」から出し直してください。';
+      else { await storeFaxHtml(o2); extra = '　自動FAXの中身も作り直しました。'; }
+    } else if(isMailSupplier(o2.supplier)){
+      if(o2.mailSentAt) extra = '　この注文書はもうメール送信済みです。訂正版を送る場合は「注文書を見る」から出し直してください。';
+      else { await storeMailQ(o2); extra = '　自動メールの中身も作り直しました。'; }
+    }
+    fixing = null;
+    renderAll(); renderDetail(oid);
+    el('d-msg2').textContent = '直しました（' + changes.join('／') + '）。' + extra;
+  }
   el('detail').addEventListener('click', async e=>{
+    const fon = e.target.dataset.fixon;
+    if(fon){ fixing = fon; renderDetail(fon); el('d-msg2').textContent = '数量と単価を直して「直して保存」を押してください。'; return; }
+    const foff = e.target.dataset.fixoff;
+    if(foff){ fixing = null; renderDetail(foff); return; }
+    const fsave = e.target.dataset.fixsave;
+    if(fsave){ await saveFix(fsave); return; }
     const id = e.target.dataset.savemeta;
     const rid = e.target.dataset.savereq;
     const nid = e.target.dataset.renotify;
