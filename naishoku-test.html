@@ -616,6 +616,22 @@ function addItem(i){
   if(ex){ ex.qty+=1; } else { S.cart.push({code:p[0],name:p[1]||"",price:p[2]??0,qty:1}); }
   document.getElementById("pq").value=""; drawProducts(); drawCart();
 }
+/* 納入が入っている品目を消すと、受領書の行だけ残って金額が合わなくなる。
+   先に④で納入を取り消してもらう。 */
+function cartDel(i){
+  const c=S.cart[i]; if(!c) return;
+  if((S.deliveries||[]).some(d=>d.code===c.code)){
+    alert("「"+c.name+"」には、すでに納入が入っています。\n\n"
+      +"先に「④ 納入・受領書」でその日の受取書を開き、"
+      +"「この日の納入を取り消す」を押してから、もう一度この品目を消してください。");
+    return;
+  }
+  if(S.closed[c.code]){
+    if(!confirm("「"+c.name+"」は完了（打ち切り）になっています。品目ごと消しますか。")) return;
+    delete S.closed[c.code];
+  }
+  S.cart.splice(i,1); drawCart();
+}
 function drawCart(){
   const b=document.getElementById("cart");
   b.innerHTML = S.cart.length? S.cart.map((c,i)=>`<tr>
@@ -624,7 +640,7 @@ function drawCart(){
       <td class="num"><input type="number" min="0" step="1" value="${c.qty}"
           onchange="S.cart[${i}].qty=Math.max(0,Number(this.value)||0);drawCart()"></td>
       <td class="num">${yen(c.qty*c.price)}</td>
-      <td><button class="del" onclick="S.cart.splice(${i},1);drawCart()" aria-label="削除">×</button></td>
+      <td><button class="del" onclick="cartDel(${i})" aria-label="削除">×</button></td>
     </tr>`).join("") : `<tr><td colspan="5"><div class="empty">まだ何も入っていません</div></td></tr>`;
   document.getElementById("cartSum").textContent=yen(S.cart.reduce((a,c)=>a+c.qty*c.price,0));
   const has=S.cart.length>0;
@@ -776,6 +792,17 @@ function schedulePdf(kind){
 function restOf(i){
   const c=S.cart[i]; return Math.max(0,c.qty-(S.delivered[c.code]||0));
 }
+/* 打ち切りや完了を、品目ごとに取り消す。納入の記録はそのまま残す。 */
+function reopenLine(code){
+  const c=S.cart.find(x=>x.code===code); if(!c) return;
+  const got=S.delivered[code]||0;
+  if(!confirm("「"+c.name+"」の完了を取り消します。\n\n"
+    +"納入 "+n(got)+" はそのまま残り、未完了（残り "+Math.max(0,c.qty-got)+"）に戻ります。よろしいですか。")) return;
+  delete S.closed[code];
+  if(!saveSlip()){ toast("取り消しましたが、端末に保存できませんでした。"); }
+  drawDelivery(); renderJuryo(); drawSlipList();
+  toast("「"+c.name+"」を未完了に戻しました。");
+}
 function drawDelivery(){
   if(!S.cart.length){
     document.getElementById("deliv").innerHTML=
@@ -790,7 +817,9 @@ function drawDelivery(){
       <div class="dh"><span class="cd">${esc(c.code)}</span>
         <span class="nm">${esc(c.name)}</span>
         ${closed?(shortfall?'<span class="badge" style="background:var(--muted)">打ち切り</span>'
-                           :'<span class="badge">'+(surplus?"完了（多め）":"完了")+'</span>'):""}</div>
+                           :'<span class="badge">'+(surplus?"完了（多め）":"完了")+'</span>'):""}
+        ${closed?`<button class="btn quiet" style="flex:0 0 auto;min-width:0;padding:4px 10px;font-size:11.5px"
+            onclick="reopenLine('${esc(c.code)}')">完了を取り消す</button>`:""}</div>
       <div class="fig"><span>委託 <b>${n(c.qty)}</b></span>
         <span>納入 <b>${n(done)}</b></span>
         ${closed? (shortfall?`<span>未納のまま終了 <b>${n(shortfall)}</b></span>`
@@ -1215,7 +1244,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-11-04 18:40";
+const APP_VER="2026-11-04 20:10";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
