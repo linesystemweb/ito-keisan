@@ -845,7 +845,39 @@ function drawReceiptBar(){
        onclick="showDraft()">新しい納入を入力する</button>`:"")
     + dates.map(d=>`<button class="btn ${S.viewDate===d?"":"quiet"}"
         style="min-width:0;padding:6px 12px;font-size:12.5px"
-        onclick="showReceipt('${d}')">${ymd(d)} の受取書</button>`).join("");
+        onclick="showReceipt('${d}')">${ymd(d)} の受取書</button>`).join("")
+    + (S.viewDate?`<button class="btn quiet" style="min-width:0;padding:6px 12px;font-size:12.5px;color:#A63C38"
+       onclick="undoDelivery()">この日の納入を取り消す</button>`:"");
+}
+
+/* 入れ間違えた納入を、その日ぶんだけ取り消す。
+   取り消すのは「その日に納入を入れた品目」だけ。別の日に打ち切った品目には触らない。 */
+function undoDelivery(){
+  const d=S.viewDate;
+  if(!d){ toast("取り消す日の受取書を先に開いてください。"); return; }
+  const rows=(S.deliveries||[]).filter(x=>x.date===d);
+  if(!rows.length){ toast("この日の納入記録がありません。"); return; }
+  const nm=c=>((S.cart.find(x=>x.code===c)||{}).name||c);
+  const list=rows.map(x=>"　・"+nm(x.code)+"　"+n(x.qty)).join("\n");
+  if(!confirm(`${ymd(d)} の納入を取り消します。\n\n${list}\n\n`
+    +`この日の受取書はなかったことになり、上の品目は未納に戻ります。よろしいですか。`)) return;
+
+  const hit=new Set(rows.map(x=>x.code));
+  S.deliveries=(S.deliveries||[]).filter(x=>x.date!==d);
+  S.delivered={};
+  (S.deliveries||[]).forEach(x=>{ S.delivered[x.code]=(S.delivered[x.code]||0)+x.qty; });
+  const nc=Object.assign({},S.closed);
+  hit.forEach(c=>{
+    const line=S.cart.find(x=>x.code===c);
+    if(line && (S.delivered[c]||0) < line.qty) delete nc[c];   // 委託数に届かなくなったら未完了に戻す
+  });
+  S.closed=nc;
+  S.viewDate=null;
+  if(!saveSlip()){ toast("取り消しましたが、端末に保存できませんでした。"); }
+  drawDelivery(); renderJuryo(); drawSlipList();
+  toast(`${ymd(d)} の納入を取り消しました。\n`
+    +`この日に入れた ${rows.length} 件が未納に戻っています。\n`
+    +`受取書を出し直す場合は、もう一度納入を入れて確定してください。`);
 }
 function showReceipt(d){ S.viewDate=d; document.getElementById("jryDate").value=d; renderJuryo(); }
 function showDraft(){ S.viewDate=null; drawDelivery(); renderJuryo(); }
@@ -1183,7 +1215,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-10-31 15:20";
+const APP_VER="2026-11-04 18:40";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
