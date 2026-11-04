@@ -374,7 +374,7 @@
         <label class="field"><span>発注者</span><select id="l-staff"><option value="">全員</option></select></label>
         <label class="field"><span>仕入先</span><select id="l-sup"><option value="">すべて</option></select></label>
         <label class="field"><span>状態</span><select id="l-status">
-          <option value="">すべて</option><option value="open">未入荷あり</option><option value="done">入荷完了</option>
+          <option value="">すべて</option><option value="open">未入荷あり</option><option value="done">入荷完了</option><option value="cancelled">取消</option>
         </select></label>
         <label class="field"><span>検索（発注No・副発注No・社内メモ・品名）</span><input id="l-q" placeholder="例 G210039、OEM向け"></label>
       </div>
@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-02 v17';
+  const APP_VER     = '2026-11-04 v18';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -857,7 +857,7 @@
     const p = jstParts(new Date());
     const ym = p ? (p.year + '-' + p.month) : today().slice(0, 7);
     const mine = orders.filter(o => String(o.date || '').slice(0, 7) === ym
-                                 && o.status !== 'rejected' && !isTestOrder(o));
+                                 && isLive(o) && !isTestOrder(o));
     if(!mine.some(o => o.id === order.id)) mine.push(order);
     mine.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
                      || String(a.no || '').localeCompare(String(b.no || '')));
@@ -1286,7 +1286,7 @@
       <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
         <div>
           <div style="font-size:26px;font-weight:700">${esc(sup.full||o.supplier)}　御中</div>
-          <div style="margin-top:8px">注文番号 : ${esc(o.no)}</div>
+          <div style="margin-top:8px">注文番号 : ${esc(o.no)}${o.revNote?'（訂正）':''}</div>
           <div>納期 : ${esc(o.due||'納期ご連絡願います。')}</div>
           <div>納入先 : ${esc(o.to)}</div>
           <div>梱包 : ${esc(o.packing)}</div>
@@ -1300,6 +1300,7 @@
           <div style="margin-top:6px">発注者 : ${esc(o.staff)}</div>
         </div>
       </div>
+      ${o.revNote?`<p style="border:2px solid #111;padding:6px 12px;margin:10px 0;font-weight:700">${esc(o.revNote)}</p>`:''}
       <p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>
       ${o.note?`<p style="font-weight:700;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:''}
       <table style="margin-top:8px"><thead><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>${hasPack?'<th>荷姿</th>':''}<th style="text-align:right">数量</th><th>単位</th><th style="text-align:right">単価</th><th style="text-align:right">金額</th>${hasDue?'<th>納期・着指定</th>':''}</tr></thead><tbody>${rows}</tbody></table>
@@ -1342,9 +1343,12 @@
     return {got, rest: Math.max(0,(l.qty||0)-got), over: Math.max(0, got-(l.qty||0))};
   }
   function orderStatus(o){
+    if(o.status === 'cancelled') return 'cancelled';
     const open = o.lines.some(l => !l.closed && remaining(l).rest > 0);
     return open ? 'open' : 'done';
   }
+  // 取り消した注文・差し戻した注文は、入荷や支払予定の計算に入れない
+  function isLive(o){ return o.status !== 'cancelled' && o.status !== 'rejected'; }
   function renderList(){
     const fs = el('l-staff').value, fsup = el('l-sup').value, fst = el('l-status').value;
     const q = (el('l-q').value||'').trim().toLowerCase();
@@ -1360,6 +1364,7 @@
         <td class="tiny muted">${esc(o.memo||'')}</td>
         <td class="num">${o.lines.length}</td><td class="num">${yen(t.gross)}${t.usd?` <span class="tiny muted">+US$${numf(Math.round(t.usd))}</span>`:''}</td>
         <td>${o.status==='pending'?'<span class="pill warn">承認待ち</span>':o.status==='rejected'?'<span class="pill bad">差し戻し</span>':
+          o.status==='cancelled'?'<span class="pill bad">取消</span>':
           (st==='open'?'<span class="pill warn">未入荷あり</span>':'<span class="pill ok">入荷完了</span>')}
         </td>
         <td class="tiny">${o.faxSentAt?`<span class="pill ok" title="${esc(jdatetime(o.faxSentAt))}">FAX ${esc(jmdhm(o.faxSentAt))}</span>`
@@ -1377,6 +1382,8 @@
         <span class="tiny muted">${esc(jdate(o.date))}／${esc(o.staff)}／納入先 ${esc(o.to)}</span>
         ${o.faxSentAt?`<span class="pill ok">FAX送信済み ${esc(jdatetime(o.faxSentAt))}</span>`:''}
         ${o.mailSentAt?`<span class="pill ok">メール送信済み ${esc(jdatetime(o.mailSentAt))}</span>`:''}
+        ${o.status==='cancelled'?`<span class="pill bad">取消 ${esc(jdatetime(o.cancelledAt||''))}${o.cancelledBy?'／'+esc(o.cancelledBy):''}</span>`:''}
+        ${o.revNote?'<span class="pill warn">訂正版</span>':''}
         <button class="btn quiet small right" id="sheetBtn">注文書を見る</button></div>
       <div class="row" style="margin-top:10px;align-items:flex-end">
         <label class="field" style="max-width:200px"><span>副発注No.（先方の番号）</span>
@@ -1400,8 +1407,16 @@
         ${fix ? `<button class="btn small" data-fixsave="${esc(o.id)}">直して保存</button>
                  <button class="btn quiet small" data-fixoff="${esc(o.id)}">やめる</button>`
               : `<button class="btn quiet small" data-fixon="${esc(o.id)}">明細を直す</button>`}
+        ${o.status==='cancelled'
+          ? `<button class="btn quiet small" data-uncancel="${esc(o.id)}">取消をやめる（元に戻す）</button>`
+          : `<button class="btn quiet small" data-cancel="${esc(o.id)}">この注文を取り消す</button>`}
         <span class="tiny muted" id="d-msg2"></span>
       </div>
+      ${(o.faxSentAt || o.mailSentAt || o.revNote) ? `<div class="row" style="margin-top:6px;align-items:flex-end">
+        <label class="field" style="max-width:520px"><span>訂正の一文（入れると注文書の上に枠で出ます。空にすると消えます）</span>
+          <input id="d-rev" value="${esc(o.revNote||'')}" placeholder="【訂正】先にお送りした同番号の注文書は破棄してください。"></label>
+        <button class="btn quiet small" data-revsave="${esc(o.id)}">訂正版にする</button>
+      </div>` : ''}
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;
         return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join(' '))}</td>
@@ -1425,7 +1440,7 @@
   function renderRecv(){
     const late = el('lateOnly').checked;
     const rows = [];
-    orders.forEach(o => o.lines.forEach(l => {
+    orders.forEach(o => isLive(o) && o.lines.forEach(l => {
       const r = remaining(l);
       if(l.closed || r.rest<=0) return;
       if(late && !(l.due && l.due < today())) return;
@@ -1475,7 +1490,7 @@
   // ---------- summary ----------
   function renderSummary(){
     const pay = {}, staffAgg = {}, supAgg = {};
-    orders.forEach(o=>{
+    orders.filter(isLive).forEach(o=>{
       const t = orderTotals(o);
       staffAgg[o.staff] = staffAgg[o.staff] || {n:0, v:0};
       staffAgg[o.staff].n++; staffAgg[o.staff].v += t.gross;
@@ -1988,7 +2003,56 @@
     renderAll(); renderDetail(oid);
     el('d-msg2').textContent = '直しました（' + changes.join('／') + '）。' + extra;
   }
+  // 注文まるごとの取り消し。送信前なら自動FAX・自動メールも取り下げる。
+  async function cancelOrder(oid, back){
+    const o = orders.find(x=>x.id===oid); if(!o) return;
+    const msg = el('d-msg2');
+    if(!back){
+      const got = o.lines.some(l => remaining(l).got > 0);
+      if(got && !confirm('この注文には入荷済みの明細があります。それでも取り消しますか？')) return;
+      if(!got && !confirm(o.no + ' を取り消します。よろしいですか？')) return;
+      o.status = 'cancelled';
+      o.cancelledAt = new Date().toISOString();
+      o.cancelledBy = meStaff().n;
+    } else {
+      if(!confirm(o.no + ' の取り消しをやめて、元に戻します。よろしいですか？')) return;
+      o.status = o.approvedAt ? 'approved' : 'sent';
+      o.cancelledAt = ''; o.cancelledBy = '';
+    }
+    msg.textContent = '保存しています…';
+    o.updatedAt = new Date().toISOString();
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok){ msg.textContent = '保存できませんでした。'; return; }
+    renderAll(); renderDetail(oid);
+    const sentAlready = o.faxSentAt || o.mailSentAt;
+    el('d-msg2').textContent = back
+      ? '取り消しを元に戻しました。'
+      : ('取り消しました。入荷消し込み・集計・支払予定から外れます。'
+         + (sentAlready ? '　すでに仕入先へ送ってあるので、取り消しの連絡は別途お願いします。'
+                        : '　まだ送っていないので、自動のFAX・メールも出ません。'));
+  }
+  // 訂正の一文を入れる（注文書の上に枠で出る）
+  async function saveRev(oid){
+    const o = orders.find(x=>x.id===oid); if(!o) return;
+    const box = el('d-rev');
+    o.revNote = box ? box.value.trim() : '';
+    o.updatedAt = new Date().toISOString();
+    el('d-msg2').textContent = '保存しています…';
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok){ el('d-msg2').textContent = '保存できませんでした。'; return; }
+    const o2 = orders.find(x=>x.id===oid) || o;
+    renderAll(); renderDetail(oid);
+    el('d-msg2').textContent = o2.revNote
+      ? '訂正版にしました。「注文書を見る」から、FAX送信用PDFの保存やメールの作成ができます。'
+      : '訂正の表示を消しました。';
+  }
   el('detail').addEventListener('click', async e=>{
+    const can = e.target.dataset.cancel;
+    if(can){ await cancelOrder(can, false); return; }
+    const unc = e.target.dataset.uncancel;
+    if(unc){ await cancelOrder(unc, true); return; }
+    const rev = e.target.dataset.revsave;
+    if(rev){ await saveRev(rev); return; }
     const fon = e.target.dataset.fixon;
     if(fon){ fixing = fon; renderDetail(fon); el('d-msg2').textContent = '数量と単価を直して「直して保存」を押してください。'; return; }
     const foff = e.target.dataset.fixoff;
