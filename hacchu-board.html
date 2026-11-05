@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v23';
+  const APP_VER     = '2026-11-05 v24';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1155,8 +1155,10 @@
     const sups = suppliers().map(x=>x.n);
     const head = rows[0] || [];
     // 1行目が見出しなら、そこから決める
-    const byHead = {'商品コード':'c','品番':'c','商品名':'n','品名':'n','仕入先':'s','メーカー':'s',
-      'サイズ':'z','御社サイズ':'z','号数':'z','色':'k','形態':'f','単価':'p','仕入単価':'p','単位':'u','区分':'g'};
+    const toMi = {code:'c', name:'n', supplier:'s', size:'z', color:'k', form:'f', price:'p', unit:'u'};
+    const byHead = {};
+    Object.keys(HEAD_WORDS).forEach(w=>{ const k = toMi[HEAD_WORDS[w]]; if(k) byHead[w] = k; });
+    byHead['区分'] = 'g';
     let used = false;
     head.forEach((h,i)=>{ const k = byHead[String(h).trim()]; if(k && !map.includes(k)){ map[i]=k; used=true; } });
     if(used) return map;
@@ -1223,7 +1225,25 @@
 
   // ---------- Excelの貼り付け（列の割り当て） ----------
   const MAP_ROLES = [['','使わない'],['code','品番'],['name','品名'],['size','サイズ・号数'],
-                     ['color','色'],['form','形態'],['qty','数量'],['unit','単位'],['price','単価']];
+                     ['color','色'],['form','形態'],['qty','数量'],['unit','単位'],['price','単価'],
+                     ['supplier','仕入先']];
+  // 見出しの言葉から列を決める（Excelの1行目が見出しのとき）
+  const HEAD_WORDS = {
+    '商品コード':'code','品番':'code','コード':'code','商品名':'name','品名':'name','名称':'name',
+    '仕入先':'supplier','メーカー':'supplier','サイズ':'size','御社サイズ':'size','号数':'size','規格':'size',
+    '色':'color','カラー':'color','形態':'form','荷姿':'form','数量':'qty','入数':'qty',
+    '単価':'price','仕入単価':'price','単位':'unit'
+  };
+  function mapFromHead(rows){
+    const head = rows[0] || [];
+    const map = new Array(Math.max(...rows.map(r=>r.length))).fill('');
+    let hit = 0;
+    head.forEach((h,i)=>{
+      const k = HEAD_WORDS[String(h).replace(/\s+/g,'')];
+      if(k && !map.includes(k)){ map[i] = k; hit++; }
+    });
+    return hit >= 2 ? map : null;
+  }
   let pasteRows = [];                       // 貼り付けた中身を列ごとに分けたもの
   function splitPasted(text){
     return (text||'').split(/\r?\n/).map(r=>r.replace(/\s+$/,''))
@@ -1232,17 +1252,21 @@
   }
   // 中身を見て、たぶんこの列だろうという割り当てを作る
   function guessMap(rows){
+    const byHead = mapFromHead(rows);
+    if(byHead) return byHead;
     const cols = Math.max(...rows.map(r=>r.length));
     const col = i => rows.map(r=>r[i]||'').filter(v=>v!=='');
     const num = v => parseFloat(String(v).replace(/[,\s]/g,''));
     const map = new Array(cols).fill('');
     const free = i => !map[i];
-    // ① 円が入っている列は単価
-    for(let i=0;i<cols;i++) if(col(i).some(v=>/円/.test(v))) map[i] = 'price';
-    // ② 先頭が品番らしければ品番（数字だけでも品番のことがある）
+    const sups = suppliers().map(x=>x.n);
+    for(let i=0;i<cols;i++){
+      const vals = col(i); if(!vals.length) continue;
+      if(vals.some(v=>sups.includes(v))){ map[i] = 'supplier'; continue; }
+      if(vals.some(v=>/円/.test(v))){ map[i] = 'unit'; continue; }   // 「円/本」は単位
+    }
     const first = col(0);
-    if(free(0) && first.length && first.every(v=>/^[0-9A-Za-z][0-9A-Za-z\-\.]{2,19}$/.test(v))) map[0] = 'code';
-    // ③ 文字が多い列が品名
+    if(free(0) && first.length && first.every(v=>/^[0-9A-Za-z][0-9A-Za-z\-\.\/]{2,19}$/.test(v))) map[0] = 'code';
     let bestName = -1, bestLen = 0;
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
@@ -1252,23 +1276,22 @@
       if(avg > bestLen){ bestLen = avg; bestName = i; }
     }
     if(bestName >= 0) map[bestName] = 'name';
-    // ④ 同じ短い言葉が並ぶ列は形態（バルク、巻き など）
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
       const vals = col(i); if(!vals.length) continue;
       if(vals.every(v=>!isNaN(num(v)))) continue;
       if(vals.every(v=>v.length<=6) && new Set(vals).size <= Math.max(2, Math.ceil(vals.length/3))) map[i] = 'form';
     }
-    // ⑤ 残った数字の列のうち、いちばん大きい数が入っている列が数量
+    // 数量らしい列（けた数が大きい整数ばかり）だけを数量にする。無ければ数量なしでよい。
     let bestQty = -1, bestMax = -1;
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
       const vals = col(i); if(!vals.length) continue;
-      if(!vals.every(v=>!isNaN(num(v)))) continue;
+      if(!vals.every(v=>!isNaN(num(v)) && Number.isInteger(num(v)))) continue;
       const mx = Math.max(...vals.map(num));
       if(mx > bestMax){ bestMax = mx; bestQty = i; }
     }
-    if(bestQty >= 0 && bestMax >= 10) map[bestQty] = 'qty';
+    if(bestQty >= 0 && bestMax >= 100) map[bestQty] = 'qty';
     return map;
   }
   function mapKey(){ return 'po.map.' + (el('f-sup').value||'') + '.' + (pasteRows[0]||[]).length; }
@@ -1290,15 +1313,21 @@
     try{ localStorage.setItem(mapKey(), JSON.stringify(map)); }catch(e){}
     const at = (r, role) => { const i = map.indexOf(role); return i < 0 ? '' : (r[i]||'').trim(); };
     const pool = supItems();
-    let ok = 0, miss = 0;
-    pasteRows.forEach(r=>{
+    const mySup = el('f-sup').value;
+    const hasSup = map.includes('supplier');
+    let ok = 0, miss = 0, skip = 0;
+    pasteRows.forEach((r, ri)=>{
       const code = at(r,'code'), nm = at(r,'name');
       if(!code && !nm) return;
+      if(ri === 0 && Object.keys(HEAD_WORDS).indexOf(String(nm).replace(/\s+/g,'')) >= 0){ skip++; return; }
+      if(hasSup && at(r,'supplier') && at(r,'supplier') !== mySup){ skip++; return; }
       const qty = parseFloat(String(at(r,'qty')).replace(/[,\s]/g,''));
       const rawP = at(r,'price');
       const price = rawP === '' ? null : parseFloat(String(rawP).replace(/[^0-9.\-]/g,''));
       let unit = at(r,'unit');
-      if(!unit && /円\s*\/\s*(\S+)/.test(rawP)) unit = RegExp.$1;
+      if(!unit) unit = rawP;
+      if(/円\s*\/\s*(\S+)/.test(unit)) unit = RegExp.$1;      // 「円/本」→「本」
+      if(/^[¥\d.,\s]*$/.test(unit)) unit = '';                 // 数字だけなら単位ではない
       const hit = (code && (pool.find(i=>i.c===code) || pool.find(i=>i.c && code.startsWith(i.c))))
                || (nm && (pool.find(i=>i.n===nm) || pool.find(i=>i.n && i.n.includes(nm))));
       if(hit){
@@ -1316,7 +1345,8 @@
     lines = lines.filter(l => l.name || l.qty);
     if(!lines.length) lines = [blankLine()];
     renderLines();
-    el('pasteMsg').textContent = `${ok}件はマスタと一致、${miss}件は新規として追加しました。`;
+    el('pasteMsg').textContent = `${ok}件はマスタと一致、${miss}件は新規として追加しました。`
+      + (skip ? `（${skip}行は見出しや他の仕入先なので飛ばしました）` : '');
     el('pasteArea').value = '';
     el('mapWrap').hidden = true;
     pasteRows = [];
