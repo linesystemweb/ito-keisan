@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v24';
+  const APP_VER     = '2026-11-05 v25';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1149,33 +1149,9 @@
                     ['k','色'],['f','形態'],['p','単価'],['u','単位'],['g','区分']];
   let miRows = [];
   function miGuess(rows){
-    const cols = Math.max(...rows.map(r=>r.length));
-    const col = i => rows.map(r=>r[i]||'').filter(v=>v!=='');
-    const map = new Array(cols).fill('');
-    const sups = suppliers().map(x=>x.n);
-    const head = rows[0] || [];
-    // 1行目が見出しなら、そこから決める
-    const toMi = {code:'c', name:'n', supplier:'s', size:'z', color:'k', form:'f', price:'p', unit:'u'};
-    const byHead = {};
-    Object.keys(HEAD_WORDS).forEach(w=>{ const k = toMi[HEAD_WORDS[w]]; if(k) byHead[w] = k; });
-    byHead['区分'] = 'g';
-    let used = false;
-    head.forEach((h,i)=>{ const k = byHead[String(h).trim()]; if(k && !map.includes(k)){ map[i]=k; used=true; } });
-    if(used) return map;
-    for(let i=0;i<cols;i++){
-      const vals = col(i); if(!vals.length) continue;
-      if(vals.some(v=>sups.includes(v))){ map[i]='s'; continue; }
-      if(vals.some(v=>/円/.test(v))){ map[i]='u'; continue; }
-    }
-    let bestName=-1,bestLen=0;
-    for(let i=0;i<cols;i++){
-      if(map[i]) continue;
-      const vals=col(i); if(!vals.length) continue;
-      if(vals.every(v=>!isNaN(parseFloat(v)))) continue;
-      const avg=vals.reduce((a,v)=>a+v.length,0)/vals.length;
-      if(avg>bestLen){ bestLen=avg; bestName=i; }
-    }
-    if(bestName>=0) map[bestName]='n';
+    const toMi = { code:'c', name:'n', supplier:'s', size:'z', color:'k', form:'f', price:'p', unit:'u' };
+    const map = guessMap(rows).map(v => toMi[v] || '');
+    (rows[0]||[]).forEach((h,i)=>{ if(String(h).replace(/\s+/g,'') === '\u533a\u5206') map[i] = 'g'; });
     return map;
   }
   function miRender(){
@@ -1184,9 +1160,9 @@
     el('miHead').innerHTML = Array.from({length:cols},(_,i)=>
       `<th><select data-mi="${i}">${MI_ROLES.map(([v,t])=>
         `<option value="${v}"${map[i]===v?' selected':''}>${t}</option>`).join('')}</select></th>`).join('');
-    el('miBody').innerHTML = miRows.slice(0,3).map(r=>
+    el('miBody').innerHTML = miRows.slice(0,6).map(r=>
       `<tr>${Array.from({length:cols},(_,i)=>`<td class="tiny">${esc(r[i]||'')}</td>`).join('')}</tr>`).join('')
-      + (miRows.length>3?`<tr><td class="tiny muted" colspan="${cols}">ほか${miRows.length-3}行</td></tr>`:'');
+      + (miRows.length>6?`<tr><td class="tiny muted" colspan="${cols}">ほか${miRows.length-6}行</td></tr>`:'');
     el('miMapWrap').hidden = false;
   }
   async function miImport(){
@@ -1206,7 +1182,9 @@
       const rawP = at(r,'p');
       const pv = rawP === '' ? '' : parseFloat(rawP.replace(/[^0-9.\-]/g,''));
       let unit = at(r,'u');
-      if(/円\s*\/\s*(\S+)/.test(unit)) unit = RegExp.$1;
+      if(!unit) unit = rawP;
+      if(/円\s*\/\s*(\S+)/.test(unit)) unit = RegExp.$1;   // 「円/本」→「本」
+      if(/^[¥\d.,\s]*$/.test(unit)) unit = '';               // 数字だけなら単位ではない
       out.push({ s: sup, c: at(r,'c'), n: name, z: at(r,'z'), k: at(r,'k'), f: at(r,'f'),
         u: unit, p: (pv === '' || isNaN(pv)) ? '' : pv, cu: 'JPY', d: date, src: src, g: cat });
     });
@@ -1246,9 +1224,17 @@
   }
   let pasteRows = [];                       // 貼り付けた中身を列ごとに分けたもの
   function splitPasted(text){
-    return (text||'').split(/\r?\n/).map(r=>r.replace(/\s+$/,''))
-      .filter(r=>r.trim()!=='')
-      .map(r=>r.split(/\t|\s{2,}/).map(c=>c.trim()));
+    const raw = (text||'').replace(/\r\n?/g,'\n').split('\n').filter(r=>r.trim()!=='');
+    if(!raw.length) return [];
+    // Excelからの貼り付けはタブで区切られている。タブがあればタブだけで分ける。
+    // 品名の中の空白で切ると列がずれてしまうため、空白では分けない。
+    const byTab = raw.some(r=>r.indexOf('\t') >= 0);
+    const rows = raw.map(r=>(byTab ? r.split('\t') : r.split(/\s{2,}/)).map(c=>String(c).trim()));
+    const cols = Math.max(...rows.map(r=>r.length));
+    rows.forEach(r=>{ while(r.length < cols) r.push(''); });   // 行の長さをそろえる
+    const keep = [];
+    for(let i=0;i<cols;i++) if(rows.some(r=>r[i] !== '')) keep.push(i);  // 空っぽの列は落とす
+    return rows.map(r=>keep.map(i=>r[i]));
   }
   // 中身を見て、たぶんこの列だろうという割り当てを作る
   function guessMap(rows){
@@ -1256,42 +1242,66 @@
     if(byHead) return byHead;
     const cols = Math.max(...rows.map(r=>r.length));
     const col = i => rows.map(r=>r[i]||'').filter(v=>v!=='');
-    const num = v => parseFloat(String(v).replace(/[,\s]/g,''));
+    const num = v => parseFloat(String(v).replace(/[,\s\u00a5]/g,''));
+    const isNum = v => /^[\u00a5\-]?[0-9,]+(\.[0-9]+)?$/.test(String(v).replace(/\s/g,''));
+    const same = (a,b) => rows.every(r=>String(r[a]||'').trim() === String(r[b]||'').trim());
     const map = new Array(cols).fill('');
     const free = i => !map[i];
     const sups = suppliers().map(x=>x.n);
     for(let i=0;i<cols;i++){
       const vals = col(i); if(!vals.length) continue;
       if(vals.some(v=>sups.includes(v))){ map[i] = 'supplier'; continue; }
-      if(vals.some(v=>/円/.test(v))){ map[i] = 'unit'; continue; }   // 「円/本」は単位
+      // 「2.1 円/本」は単価（単位もここから読む）。「円/本」だけなら単位。
+      if(vals.some(v=>/\u5186/.test(v))) map[i] = vals.some(v=>/[0-9]/.test(v)) ? 'price' : 'unit';
     }
     const first = col(0);
     if(free(0) && first.length && first.every(v=>/^[0-9A-Za-z][0-9A-Za-z\-\.\/]{2,19}$/.test(v))) map[0] = 'code';
+    // 品名＝文字数の多い列
     let bestName = -1, bestLen = 0;
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
       const vals = col(i); if(!vals.length) continue;
-      if(vals.every(v=>!isNaN(num(v)))) continue;
+      if(vals.every(isNum)) continue;
       const avg = vals.reduce((a,v)=>a+v.length,0)/vals.length;
       if(avg > bestLen){ bestLen = avg; bestName = i; }
     }
     if(bestName >= 0) map[bestName] = 'name';
+    // 形態＝短い言葉が何度も出てくる列
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
       const vals = col(i); if(!vals.length) continue;
-      if(vals.every(v=>!isNaN(num(v)))) continue;
+      if(vals.every(isNum)) continue;
       if(vals.every(v=>v.length<=6) && new Set(vals).size <= Math.max(2, Math.ceil(vals.length/3))) map[i] = 'form';
     }
-    // 数量らしい列（けた数が大きい整数ばかり）だけを数量にする。無ければ数量なしでよい。
+    // 数量＝けた数の大きい整数ばかりの列。なければ数量なしでよい。
     let bestQty = -1, bestMax = -1;
     for(let i=0;i<cols;i++){
       if(!free(i)) continue;
       const vals = col(i); if(!vals.length) continue;
-      if(!vals.every(v=>!isNaN(num(v)) && Number.isInteger(num(v)))) continue;
+      if(!vals.every(v=>isNum(v) && Number.isInteger(num(v)))) continue;
       const mx = Math.max(...vals.map(num));
       if(mx > bestMax){ bestMax = mx; bestQty = i; }
     }
     if(bestQty >= 0 && bestMax >= 100) map[bestQty] = 'qty';
+    // 単価がまだ決まっていなければ、数字だけの列のうち一番右を単価にする
+    if(!map.includes('price')){
+      for(let i=cols-1;i>=0;i--){
+        if(!free(i)) continue;
+        const vals = col(i); if(!vals.length) continue;
+        if(vals.every(isNum)){ map[i] = 'price'; break; }
+      }
+    }
+    // サイズ＝残った短い列。中身が同じ列が続くときは最初だけ使う（Eurサイズなど）
+    let sizeAt = -1;
+    for(let i=0;i<cols;i++){
+      if(!free(i)) continue;
+      const vals = col(i); if(!vals.length) continue;
+      if(!vals.every(v=>v.length<=10)) continue;
+      if(sizeAt < 0){ map[i] = 'size'; sizeAt = i; }
+    }
+    if(sizeAt >= 0){
+      for(let i=sizeAt+1;i<cols;i++) if(free(i) && same(sizeAt,i)) map[i] = '';
+    }
     return map;
   }
   function mapKey(){ return 'po.map.' + (el('f-sup').value||'') + '.' + (pasteRows[0]||[]).length; }
@@ -1303,9 +1313,9 @@
     el('mapHead').innerHTML = Array.from({length:cols}, (_,i)=>
       `<th><select data-col="${i}">${MAP_ROLES.map(([v,t])=>
         `<option value="${v}"${map[i]===v?' selected':''}>${t}</option>`).join('')}</select></th>`).join('');
-    el('mapBody').innerHTML = pasteRows.slice(0,3).map(r=>
+    el('mapBody').innerHTML = pasteRows.slice(0,6).map(r=>
       `<tr>${Array.from({length:cols}, (_,i)=>`<td class="tiny">${esc(r[i]||'')}</td>`).join('')}</tr>`).join('')
-      + (pasteRows.length>3 ? `<tr><td class="tiny muted" colspan="${cols}">ほか${pasteRows.length-3}行</td></tr>` : '');
+      + (pasteRows.length>6 ? `<tr><td class="tiny muted" colspan="${cols}">ほか${pasteRows.length-6}行</td></tr>` : '');
     el('mapWrap').hidden = false;
   }
   function addPastedMapped(){
