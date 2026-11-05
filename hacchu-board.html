@@ -591,7 +591,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v30';
+  const APP_VER     = '2026-11-05 v31';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -2538,8 +2538,8 @@
       el('d-msg2').textContent = '送り直す準備をしています…';
       const put = await storeMailQ(o, true);
       if(!put){ el('d-msg2').textContent = '準備できませんでした（送信先メールが未登録かもしれません）。'; return; }
-      const clr = await api('putSetting', { key: 'mailsent:' + o.id, value: '' });
-      if(!(clr && clr.ok)){ el('d-msg2').textContent = '送信ずみの印を外せませんでした。もう一度お試しください。'; return; }
+      // 保管サーバは「送信ずみの時刻より新しい下書き」を見つけると送り直すので、
+      // 送信ずみの印はそのままでかまわない。
       await loadAll(); renderAll(); renderDetail(o.id);
       el('d-msg2').textContent = '5分後に送り直します。';
       return;
