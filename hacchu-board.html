@@ -590,7 +590,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v26';
+  const APP_VER     = '2026-11-05 v27';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1523,7 +1523,7 @@
       const amt = (l.qty!=null && l.price!=null) ? l.qty*l.price : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       if(l.price==null) askPrice++;
-      return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join(' '))}</td>
+      return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join('　'))}</td>
         ${hasPack?`<td>${esc(l.pack||'')}</td>`:''}
         <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
         <td style="text-align:right">${l.price==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(l.price)}</td>
@@ -1567,7 +1567,7 @@
   }
   function mailParts(o){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
-    const body = o.lines.map(l=>`・${l.code?l.code+' ':''}${l.name} ${[l.size,l.color,l.form].filter(Boolean).join(' ')} ${numf(l.qty)}${l.unit||''}`).join('\n');
+    const body = o.lines.map(l=>`・${l.code?l.code+' ':''}${l.name} ${[l.size,l.color,l.form].filter(Boolean).join('　')} ${numf(l.qty)}${l.unit||''}`).join('\n');
     return {
       to: sup.mail || '',
       cc: sup.cc || '',
@@ -1689,7 +1689,7 @@
       </div>` : ''}
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;
-        return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join(' '))}</td>
+        return `<tr><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join('　'))}</td>
         <td class="num">${fix
           ? `<input inputmode="decimal" style="width:90px;text-align:right" data-fq="${esc(o.id)}:${l.no}" value="${esc(String((fixEdits[l.no]&&fixEdits[l.no].qty!==undefined)?fixEdits[l.no].qty:l.qty))}">${esc(l.unit)}`
           : numf(l.qty)+esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
@@ -2208,7 +2208,7 @@
       const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       if(p==null) askPrice++;
-      const spec = [l.size,l.color,l.form].filter(Boolean).join(' ');
+      const spec = [l.size,l.color,l.form].filter(Boolean).join('　');
       return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
         + (hasPack?'<td>'+esc(l.pack||'')+'</td>':'')
         + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
