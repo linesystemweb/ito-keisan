@@ -78,12 +78,14 @@
   .stat b{font-size:22px;font-family:"Zen Kaku Gothic New",sans-serif;font-variant-numeric:tabular-nums}
   .sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:28px;font-size:22px;line-height:1.5;max-width:920px}
   .sheet h4{text-align:center;letter-spacing:.5em;font-size:34px;margin:0 0 20px;font-family:"Zen Kaku Gothic New",sans-serif}
-  .sheet table{font-size:19px}
-  .sheet th,.sheet td{border-bottom:1px solid #ccc;color:#111;padding:6px 8px}
+  .sheet table{font-size:19px;margin-top:10px}
+  .sheet th,.sheet td{border-bottom:1px solid #ccc;color:#111;padding:11px 12px;vertical-align:middle}
+  .sheet thead th{border-bottom:2px solid #111;padding-bottom:8px}
+  .sheet tbody tr:last-child td{border-bottom:2px solid #111}
   .sheet .co{font-size:20px}
-  .sheet th{font-size:16px;white-space:nowrap}
+  .sheet th{font-size:16px;white-space:nowrap;letter-spacing:.04em}
   .sheet td{white-space:nowrap}
-  .sheet td:nth-child(3){white-space:normal}
+  .sheet td:nth-child(3),.sheet th:nth-child(3){white-space:normal;width:36%;word-break:keep-all;overflow-wrap:anywhere}
   @media (max-width:700px){ .sheet{font-size:17px} .sheet h4{font-size:26px} .sheet table{font-size:15px} }
   .sheet .co{text-align:right;line-height:1.5}
   .lines td{padding:4px 5px}
@@ -588,7 +590,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v25';
+  const APP_VER     = '2026-11-05 v26';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1524,7 +1526,7 @@
       return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join(' '))}</td>
         ${hasPack?`<td>${esc(l.pack||'')}</td>`:''}
         <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
-        <td style="text-align:right">${l.price==null?'ご提示ください':(l.cur==='USD'?'US$':'')+numf(l.price)}</td>
+        <td style="text-align:right">${l.price==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(l.price)}</td>
         <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>
         ${hasDue?`<td>${esc(l.due||'')}</td>`:''}</tr>`;
     }).join('');
@@ -2113,10 +2115,10 @@
     .sheet{font-size:13pt;line-height:1.5;padding:0}
     .sheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
     .sheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px}
-    .sheet th,.sheet td{border-bottom:1px solid #000;padding:4px 6px}
+    .sheet th,.sheet td{border-bottom:1px solid #000;padding:6px 8px}
     .sheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
     .sheet td{white-space:nowrap}
-    .sheet td:nth-child(3){white-space:normal}
+    .sheet td:nth-child(3),.sheet th:nth-child(3){white-space:normal;width:36%;word-break:keep-all;overflow-wrap:anywhere}
     .sheet .co{text-align:right;line-height:1.5;font-size:11pt}
   `;
 
@@ -2126,10 +2128,10 @@
       color:#000;background:#fff;font-size:13pt;line-height:1.5}
     #faxsheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
     #faxsheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px}
-    #faxsheet th,#faxsheet td{border-bottom:1px solid #000;padding:4px 6px}
+    #faxsheet th,#faxsheet td{border-bottom:1px solid #000;padding:6px 8px}
     #faxsheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
     #faxsheet td{white-space:nowrap}
-    #faxsheet td:nth-child(3){white-space:normal}
+    #faxsheet td:nth-child(3),#faxsheet th:nth-child(3){white-space:normal;width:36%;word-break:keep-all;overflow-wrap:anywhere}
     #faxsheet .co{text-align:right;line-height:1.5;font-size:11pt}
   `;
 
@@ -2210,7 +2212,7 @@
       return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
         + (hasPack?'<td>'+esc(l.pack||'')+'</td>':'')
         + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
-        + '<td>'+(p==null?'ご提示ください':(l.cur==='USD'?'US$':'')+numf(p))+'</td>'
+        + '<td>'+(p==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(p))+'</td>'
         + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td>'
         + (hasDue?'<td>'+esc(l.due||'')+'</td>':'')+'</tr>';
     }).join('');
