@@ -591,7 +591,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v28';
+  const APP_VER     = '2026-11-05 v29';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -843,8 +843,14 @@
     if(!m.to) return false;
     const html = orderBodyHtml(o);
     if(html.length > 45000) return false;
+    // 添付する注文書PDFのもと。保管サーバ側でPDFに変えて付けます。
+    try{
+      const doc = orderDocDoc(o);
+      if(doc.length <= 45000) await api('putSetting', { key: 'mailpdf:' + o.id, value: doc });
+    }catch(e){}
     const r = await api('putSetting', { key: 'mailq:' + o.id, value: JSON.stringify({
-      to: m.to, cc: m.cc || '', subject: m.subject, html: html, at: new Date().toISOString()
+      to: m.to, cc: m.cc || '', subject: m.subject, html: html,
+      file: o.no + '.pdf', at: new Date().toISOString()
     })});
     return !!(r && r.ok);
   }
@@ -2208,43 +2214,81 @@
       hint.textContent = 'ファイルを保存できませんでした（' + err + '）。';
     }
   };
-  // メール本文に入れる注文書（Outlookが許可するタグだけで組む）
-  function orderBodyHtml(o){
+  // メール本文と添付PDFに使う注文書。
+  // メールソフトとGoogleのHTML→PDF変換のどちらでも崩れないよう、
+  // 並べるのは表組みだけにして、体裁は全部タグの中に直接書く。
+  const MD = {
+    doc : 'font-family:\'Yu Gothic\',\'Hiragino Kaku Gothic ProN\',sans-serif;color:#000;font-size:14px;line-height:1.6',
+    td  : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top',
+    tdc : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;white-space:nowrap',
+    tdr : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;text-align:right;white-space:nowrap',
+    th  : 'border-bottom:2px solid #000;padding:7px 9px;white-space:nowrap;font-size:13px'
+  };
+  function orderDocHtml(o){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
-    let net = 0;
+    let net = 0, askPrice = 0;
     const hasPack = o.lines.some(l=>String(l.pack||'').trim());
     const hasDue  = o.lines.some(l=>String(l.due||'').trim());
-    let askPrice = 0;
+    const head = [['No','c',4],['商品コード','l',19],['商品名','l',27],['規格','l',12]]
+      .concat(hasPack?[['荷姿','l',9]]:[])
+      .concat([['数量','r',10],['単位','l',6],['単価','r',9],['金額','r',13]])
+      .concat(hasDue?[['納期・着指定','l',11]]:[]);
+    const sum = head.reduce((a,x)=>a+x[2],0);
+    const ths = head.map(x=>`<th width="${(x[2]*100/sum).toFixed(1)}%" style="${MD.th};text-align:${x[1]==='r'?'right':'left'}">${x[0]}</th>`).join('');
     const rows = o.lines.filter(l=>l.name).map(l=>{
       const p = l.priceFixed ?? l.price;
       const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       if(p==null) askPrice++;
       const spec = [l.size,l.color,l.form].filter(Boolean).join('　');
-      return '<tr><td>'+l.no+'</td><td>'+esc(l.code||'')+'</td><td>'+esc(l.name)+'</td><td>'+esc(spec)+'</td>'
-        + (hasPack?'<td>'+esc(l.pack||'')+'</td>':'')
-        + '<td>'+numf(l.qty)+'</td><td>'+esc(l.unit||'')+'</td>'
-        + '<td>'+(p==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(p))+'</td>'
-        + '<td>'+(amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt)))+'</td>'
-        + (hasDue?'<td>'+esc(l.due||'')+'</td>':'')+'</tr>';
+      return `<tr><td style="${MD.tdc}">${l.no}</td><td style="${MD.td}">${esc(l.code||'')}</td>`
+        + `<td style="${MD.td}">${esc(l.name)}</td><td style="${MD.tdc}">${esc(spec)}</td>`
+        + (hasPack?`<td style="${MD.tdc}">${esc(l.pack||'')}</td>`:'')
+        + `<td style="${MD.tdr}">${numf(l.qty)}</td><td style="${MD.tdc}">${esc(l.unit||'')}</td>`
+        + `<td style="${MD.tdr}">${p==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(p)}</td>`
+        + `<td style="${MD.tdr}">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>`
+        + (hasDue?`<td style="${MD.tdc}">${esc(l.due||'')}</td>`:'') + '</tr>';
     }).join('');
     const tax = Math.floor(net*0.1);
-    return '<p>'+esc(sup.full||o.supplier)+' ご担当者様</p>'
-      + '<p>いつもお世話になっております。株式会社ラインシステムの'+esc(o.staff)+'です。<br>'
-      + '下記のとおり注文いたします。ご確認のほどよろしくお願いいたします。</p>'
-      + '<table><tr><td><b>注文番号</b></td><td>'+esc(o.no)+'</td></tr>'
-      + '<tr><td><b>注文日</b></td><td>'+esc(jdate(o.date))+'</td></tr>'
-      + '<tr><td><b>希望納期</b></td><td>'+esc(o.due||'ご連絡願います')+'</td></tr>'
-      + '<tr><td><b>納入先</b></td><td>'+esc(o.to)+'</td></tr>'
-      + '<tr><td><b>梱包</b></td><td>'+esc(o.packing||'')+'</td></tr></table>'
-      + (o.note?'<p><b>'+esc(o.note)+'</b></p>':'')
-      + '<table>' + sheetCols(hasPack,hasDue) + '<tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>'+(hasPack?'<th>荷姿</th>':'')+'<th>数量</th><th>単位</th><th>単価</th><th>金額</th>'+(hasDue?'<th>納期・着指定</th>':'')+'</tr>'
-      + rows + '</table>'
-      + '<p>税抜小計 '+yen(net)+'<br>消費税10% '+yen(tax)+'<br><b>税込合計 '+yen(net+tax)+'</b>'
-      + (askPrice?'<br>※単価未定の明細が'+askPrice+'行あります。上記合計は確定ではありません。':'')+'</p>'
-      + '<p>納品書および送り状に発注者名を明記してください。</p>'
-      + '<hr><p>株式会社ラインシステム　'+esc(o.staff)+'<br>'
-      + '〒630-8453 奈良市西九条町2-5-10<br>TEL 0742-64-7555／FAX 0742-64-7556</p>';
+    const info = [['注文番号',esc(o.no)+(o.revNote?'（訂正）':'')],['注文日',esc(jdate(o.date))],
+                  ['希望納期',esc(o.due||'ご連絡願います')],['納入先',esc(o.to)],['梱包',esc(o.packing||'')]]
+      .map(x=>`<tr><td style="padding:2px 18px 2px 0;white-space:nowrap"><b>${x[0]}</b></td><td style="padding:2px 0">${x[1]}</td></tr>`).join('');
+    return `<div style="${MD.doc}">`
+      + `<div style="text-align:center;letter-spacing:.4em;font-size:24px;font-weight:bold;margin:0 0 18px">注文書</div>`
+      + `<table width="100%" style="border-collapse:collapse"><tr>`
+      + `<td valign="top" style="font-size:20px;font-weight:bold;padding:0">${esc(sup.full||o.supplier)}　御中</td>`
+      + `<td valign="top" align="right" style="font-size:13px;line-height:1.5;padding:0">${esc(jdate(o.date))}<br>`
+      + `<b style="font-size:15px">株式会社ラインシステム</b><br>〒630-8453 奈良市西九条町2-5-10<br>`
+      + `TEL 0742-64-7555　FAX 0742-64-7556<br>発注者 ${esc(o.staff)}</td></tr></table>`
+      + `<table style="border-collapse:collapse;margin:14px 0 10px">${info}</table>`
+      + (o.revNote?`<p style="border:2px solid #000;padding:6px 12px;margin:10px 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
+      + `<p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
+      + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:'')
+      + `<table width="100%" style="border-collapse:collapse;margin-top:8px"><tr>${ths}</tr>${rows}</table>`
+      + `<table width="100%" style="border-collapse:collapse;margin-top:10px"><tr><td align="right" style="padding:0">`
+      + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
+      + `<span style="display:inline-block;border:2px solid #000;padding:6px 14px;margin-top:6px;font-weight:bold;font-size:18px">税込合計 ${yen(net+tax)}</span>`
+      + (askPrice?`<br><span style="font-size:12px">※単価未定の明細が${askPrice}行あります。上記合計は確定ではありません。</span>`:'')
+      + `</td></tr></table>`
+      + `<p style="text-align:center;margin-top:14px">納品書及び送り状に発注者名を明記してください。</p>`
+      + `</div>`;
+  }
+  // メールの本文（注文書のあとに差出人の署名を付ける）
+  function orderBodyHtml(o){
+    const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
+    return `<div style="${MD.doc}">`
+      + `<p>${esc(sup.full||o.supplier)} ご担当者様</p>`
+      + `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
+      + `下記のとおり注文いたします。同じ内容の注文書をPDFで添付しておりますので、ご確認のほどよろしくお願いいたします。</p></div>`
+      + orderDocHtml(o)
+      + `<div style="${MD.doc}"><hr style="border:none;border-top:1px solid #ccc;margin:18px 0">`
+      + `<p style="font-size:13px">株式会社ラインシステム　${esc(o.staff)}<br>`
+      + `〒630-8453 奈良市西九条町2-5-10<br>TEL 0742-64-7555／FAX 0742-64-7556</p></div>`;
+  }
+  // 添付PDFのもとになる1枚もののHTML
+  function orderDocDoc(o){
+    return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>' + esc(o.no)
+      + '</title></head><body style="margin:0;padding:28px;background:#fff">' + orderDocHtml(o) + '</body></html>';
   }
 
   el('draftMail').onclick = ()=>{
