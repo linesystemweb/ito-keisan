@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v19';
+  const APP_VER     = '2026-11-05 v20';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1376,6 +1376,16 @@
     }).join('');
   }
   let fixing = null;                      // 明細を直している注文のID
+  let fixAdd = [];                        // 直している途中で足した行（まだ保存していない）
+  // 画面に入っている「足した行」の中身を控える（描き直しで消えないように）
+  const FIX_ADD_KEYS = { c:'nc', name:'na', size:'nz', qty:'nq', unit:'nu', price:'np2' };
+  function fixAddBox(key, i){ return document.querySelector('[data-' + FIX_ADD_KEYS[key] + '="' + i + '"]'); }
+  function collectFixAdd(){
+    fixAdd = fixAdd.map((d, i) => {
+      const g = k => { const e = fixAddBox(k, i); return e ? e.value : (d[k] || ''); };
+      return { c:g('c'), name:g('name'), size:g('size'), qty:g('qty'), unit:g('unit'), price:g('price') };
+    });
+  }
   function renderDetail(id){
     const o = orders.find(x=>x.id===id);
     if(!o){ el('detailCard').hidden = true; return; }
@@ -1433,7 +1443,26 @@
             ? `<span class="row" style="gap:4px;justify-content:flex-end"><input inputmode="decimal" style="width:84px" placeholder="${l.cur==='USD'?'US$':'単価'}" data-lp="${esc(o.id)}:${l.no}"><button class="btn small" data-lpsave="${esc(o.id)}:${l.no}">入れる</button></span>`
             : (l.cur==='USD'?'US$':'¥')+numf(p))}${(l.priceLog||[]).length?' <span class="pill warn">あとから入力</span>':''}${(l.fixLog||[]).length?' <span class="pill warn">訂正あり</span>':''}</td>
         <td>${l.closed?'打切り':(r.rest===0?'完了':(r.got?'一部入荷':'未入荷'))}</td></tr>`;}).join('')}
+      ${fix ? fixAdd.map((d,i)=>`<tr>
+        <td class="tiny muted">新</td>
+        <td><div class="row" style="gap:4px">
+          <input style="width:110px" placeholder="商品コード" list="fixCodeList" data-nc="${i}" value="${esc(d.c||'')}">
+          <input style="min-width:170px" placeholder="品名" data-na="${i}" value="${esc(d.name||'')}">
+        </div></td>
+        <td><input style="width:110px" placeholder="規格" data-nz="${i}" value="${esc(d.size||'')}"></td>
+        <td class="num"><span class="row" style="gap:4px;justify-content:flex-end">
+          <input inputmode="decimal" style="width:90px;text-align:right" placeholder="数量" data-nq="${i}" value="${esc(d.qty||'')}">
+          <input style="width:54px" placeholder="単位" data-nu="${i}" value="${esc(d.unit||'')}"></span></td>
+        <td class="num">—</td><td class="num">—</td>
+        <td class="num"><input inputmode="decimal" style="width:90px;text-align:right" placeholder="単価" data-np2="${i}" value="${esc(d.price||'')}"></td>
+        <td class="tiny muted">追加する行</td></tr>`).join('') : ''}
       </tbody></table></div>
+      ${fix ? `<datalist id="fixCodeList">${
+        allItems().filter(x=>x.s===o.supplier && x.c).slice(0,1200)
+          .map(x=>`<option value="${esc(x.c)}">${esc([x.n,x.z,x.k].filter(Boolean).join(' / '))}</option>`).join('')
+      }</datalist>
+      <div class="row" style="margin-top:6px"><button class="btn quiet small" data-addrow="${esc(o.id)}">行を足す</button>
+        <span class="tiny muted">商品コードを入れて次の欄に移ると、品名・規格・単価が入ります。</span></div>` : ''}
       <div class="row" style="margin-top:10px"><span class="tiny muted">税抜 ${yen(t.net)}／消費税 ${yen(t.tax)}／税込 ${yen(t.gross)}${t.usd?`／US$${numf(Math.round(t.usd))}`:''}</span></div>`;
     el('detailCard').hidden = false;
     el('sheetBtn').onclick = ()=>{ showSheet(o); switchTab('new'); window.scrollTo({top:document.body.scrollHeight}); };
@@ -1988,7 +2017,26 @@
         }
       }
     }
-    if(!changes.length){ fixing = null; renderDetail(oid); return; }
+    collectFixAdd();
+    const adds = fixAdd.filter(d => String(d.name||'').trim());
+    if(adds.length){
+      let maxNo = 0;
+      o.lines.forEach(l => { if(Number(l.no) > maxNo) maxNo = Number(l.no); });
+      for(const d of adds){
+        const q = parseFloat(d.qty);
+        if(isNaN(q) || q <= 0){ msg.textContent = '足した行「' + d.name + '」の数量を入れてください。'; return; }
+        const pv = String(d.price||'').trim() === '' ? null : parseFloat(d.price);
+        if(pv !== null && (isNaN(pv) || pv < 0)){ msg.textContent = '足した行「' + d.name + '」の単価を数字で入れてください。'; return; }
+        maxNo++;
+        o.lines.push({ no: maxNo, code: String(d.c||'').trim(), name: String(d.name).trim(),
+          size: String(d.size||'').trim(), color: '', form: '', pack: '',
+          qty: q, unit: String(d.unit||'').trim(), price: pv, priceFixed: pv, cur: 'JPY', due: '',
+          recv: [], closed: false, priceLog: [],
+          fixLog: [{k:'add', from:null, to:q, by:by, at:now}] });
+        changes.push(d.name + ' を追加');
+      }
+    }
+    if(!changes.length){ fixing = null; fixAdd = []; renderDetail(oid); return; }
     msg.textContent = '保存しています…';
     o.updatedAt = now;
     const ok = await saveDoc('orders', o.id, o);
@@ -2002,7 +2050,7 @@
       if(o2.mailSentAt) extra = '　この注文書はもうメール送信済みです。訂正版を送る場合は「注文書を見る」から出し直してください。';
       else { await storeMailQ(o2); extra = '　自動メールの中身も作り直しました。'; }
     }
-    fixing = null;
+    fixing = null; fixAdd = [];
     renderAll(); renderDetail(oid);
     el('d-msg2').textContent = '直しました（' + changes.join('／') + '）。' + extra;
   }
@@ -2051,6 +2099,20 @@
       ? '訂正版にしました。「注文書を見る」から、FAX送信用PDFの保存やメールの作成ができます。'
       : '訂正の表示を消しました。';
   }
+  el('detail').addEventListener('change', e=>{
+    const i = e.target.dataset.nc;
+    if(i === undefined) return;
+    const o = orders.find(x=>x.id===fixing); if(!o) return;
+    const code = String(e.target.value||'').trim();
+    if(!code) return;
+    const hit = allItems().find(x => x.s===o.supplier && norm(x.c)===norm(code));
+    if(!hit) return;
+    const put = (k, v) => { const b = fixAddBox(k, i); if(b && !String(b.value||'').trim()) b.value = v; };
+    put('name', hit.n || '');
+    put('size', [hit.z, hit.k, hit.f].filter(Boolean).join(' '));
+    put('unit', hit.u || '');
+    if(hit.p != null) put('price', String(hit.p));
+  });
   el('detail').addEventListener('click', async e=>{
     const can = e.target.dataset.cancel;
     if(can){ await cancelOrder(can, false); return; }
@@ -2059,9 +2121,11 @@
     const rev = e.target.dataset.revsave;
     if(rev){ await saveRev(rev); return; }
     const fon = e.target.dataset.fixon;
-    if(fon){ fixing = fon; renderDetail(fon); el('d-msg2').textContent = '数量と単価を直して「直して保存」を押してください。'; return; }
+    if(fon){ fixing = fon; fixAdd = []; renderDetail(fon); el('d-msg2').textContent = '数量と単価を直して「直して保存」を押してください。行を足すこともできます。'; return; }
     const foff = e.target.dataset.fixoff;
-    if(foff){ fixing = null; renderDetail(foff); return; }
+    if(foff){ fixing = null; fixAdd = []; renderDetail(foff); return; }
+    const addrow = e.target.dataset.addrow;
+    if(addrow){ collectFixAdd(); fixAdd.push({}); renderDetail(addrow); return; }
     const fsave = e.target.dataset.fixsave;
     if(fsave){ await saveFix(fsave); return; }
     const id = e.target.dataset.savemeta;
