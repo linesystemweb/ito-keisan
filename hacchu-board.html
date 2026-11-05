@@ -560,7 +560,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-04 v18';
+  const APP_VER     = '2026-11-05 v19';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -698,6 +698,9 @@
       orders.forEach(function(o){
         o.faxSentAt = t['faxsent:' + o.id] || '';
         o.mailSentAt = t['mailsent:' + o.id] || '';
+        o.revNote = t['rev:' + o.id] || '';
+        const cx = t['cxl:' + o.id];
+        if(cx){ try{ const c = JSON.parse(cx); o.cancelledAt = c.at || ''; o.cancelledBy = c.by || ''; }catch(e){} }
         const raw = t['req:' + o.id];
         if(!raw) return;
         try{ const j = JSON.parse(raw); o.reason = j.r || ''; o.refs = j.u || []; }catch(e){}
@@ -2014,10 +2017,13 @@
       o.status = 'cancelled';
       o.cancelledAt = new Date().toISOString();
       o.cancelledBy = meStaff().n;
+      await api('putSetting', { key: 'cxl:' + o.id,
+        value: JSON.stringify({ at: o.cancelledAt, by: o.cancelledBy }) });
     } else {
       if(!confirm(o.no + ' の取り消しをやめて、元に戻します。よろしいですか？')) return;
       o.status = o.approvedAt ? 'approved' : 'sent';
       o.cancelledAt = ''; o.cancelledBy = '';
+      await api('putSetting', { key: 'cxl:' + o.id, value: '' });
     }
     msg.textContent = '保存しています…';
     o.updatedAt = new Date().toISOString();
@@ -2035,14 +2041,13 @@
   async function saveRev(oid){
     const o = orders.find(x=>x.id===oid); if(!o) return;
     const box = el('d-rev');
-    o.revNote = box ? box.value.trim() : '';
-    o.updatedAt = new Date().toISOString();
+    const text = box ? box.value.trim() : '';
     el('d-msg2').textContent = '保存しています…';
-    const ok = await saveDoc('orders', o.id, o);
-    if(!ok){ el('d-msg2').textContent = '保存できませんでした。'; return; }
-    const o2 = orders.find(x=>x.id===oid) || o;
-    renderAll(); renderDetail(oid);
-    el('d-msg2').textContent = o2.revNote
+    const r = await api('putSetting', { key: 'rev:' + o.id, value: text });
+    if(!(r && r.ok)){ el('d-msg2').textContent = '保存できませんでした。'; return; }
+    await loadAll();
+    renderDetail(oid);
+    el('d-msg2').textContent = text
       ? '訂正版にしました。「注文書を見る」から、FAX送信用PDFの保存やメールの作成ができます。'
       : '訂正の表示を消しました。';
   }
