@@ -265,6 +265,12 @@
           <textarea id="pasteArea" rows="5" placeholder="SJN-080	3000	5.67&#10;KWG-008	2000"></textarea></label>
         <div class="row" style="margin-top:8px"><button class="btn small" id="pasteAdd">読み込んで明細に追加</button>
           <span class="tiny muted" id="pasteMsg"></span></div>
+        <div id="mapWrap" hidden style="margin-top:10px;border:1px solid #d7dbe0;border-radius:8px;padding:10px">
+          <div class="tiny muted">どの列が何かを選んでください。使わない列は「使わない」のままで大丈夫です。次からも同じ並びを覚えます。</div>
+          <div class="tablewrap" style="margin-top:6px"><table id="mapTable"><thead><tr id="mapHead"></tr></thead><tbody id="mapBody"></tbody></table></div>
+          <div class="row" style="margin-top:8px"><button class="btn small" id="mapGo">この並びで読み込む</button>
+            <button class="btn quiet small" id="mapCancel">やめる</button></div>
+        </div>
       </div>
     </div>
 
@@ -560,7 +566,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v20';
+  const APP_VER     = '2026-11-05 v21';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1115,6 +1121,106 @@
       qty:l.qty, unit:l.unit, price:(l.priceFixed ?? l.price ?? ''), cur:l.cur||'JPY', due:'', register:false}));
     renderLines();
     el('lineHint').textContent = `${o.no} の明細を複製しました。数量を直してください。`;
+  }
+  // ---------- Excelの貼り付け（列の割り当て） ----------
+  const MAP_ROLES = [['','使わない'],['code','品番'],['name','品名'],['size','サイズ・号数'],
+                     ['color','色'],['form','形態'],['qty','数量'],['unit','単位'],['price','単価']];
+  let pasteRows = [];                       // 貼り付けた中身を列ごとに分けたもの
+  function splitPasted(text){
+    return (text||'').split(/\r?\n/).map(r=>r.replace(/\s+$/,''))
+      .filter(r=>r.trim()!=='')
+      .map(r=>r.split(/\t|\s{2,}/).map(c=>c.trim()));
+  }
+  // 中身を見て、たぶんこの列だろうという割り当てを作る
+  function guessMap(rows){
+    const cols = Math.max(...rows.map(r=>r.length));
+    const col = i => rows.map(r=>r[i]||'').filter(v=>v!=='');
+    const num = v => parseFloat(String(v).replace(/[,\s]/g,''));
+    const map = new Array(cols).fill('');
+    const free = i => !map[i];
+    // ① 円が入っている列は単価
+    for(let i=0;i<cols;i++) if(col(i).some(v=>/円/.test(v))) map[i] = 'price';
+    // ② 先頭が品番らしければ品番（数字だけでも品番のことがある）
+    const first = col(0);
+    if(free(0) && first.length && first.every(v=>/^[0-9A-Za-z][0-9A-Za-z\-\.]{2,19}$/.test(v))) map[0] = 'code';
+    // ③ 文字が多い列が品名
+    let bestName = -1, bestLen = 0;
+    for(let i=0;i<cols;i++){
+      if(!free(i)) continue;
+      const vals = col(i); if(!vals.length) continue;
+      if(vals.every(v=>!isNaN(num(v)))) continue;
+      const avg = vals.reduce((a,v)=>a+v.length,0)/vals.length;
+      if(avg > bestLen){ bestLen = avg; bestName = i; }
+    }
+    if(bestName >= 0) map[bestName] = 'name';
+    // ④ 同じ短い言葉が並ぶ列は形態（バルク、巻き など）
+    for(let i=0;i<cols;i++){
+      if(!free(i)) continue;
+      const vals = col(i); if(!vals.length) continue;
+      if(vals.every(v=>!isNaN(num(v)))) continue;
+      if(vals.every(v=>v.length<=6) && new Set(vals).size <= Math.max(2, Math.ceil(vals.length/3))) map[i] = 'form';
+    }
+    // ⑤ 残った数字の列のうち、いちばん大きい数が入っている列が数量
+    let bestQty = -1, bestMax = -1;
+    for(let i=0;i<cols;i++){
+      if(!free(i)) continue;
+      const vals = col(i); if(!vals.length) continue;
+      if(!vals.every(v=>!isNaN(num(v)))) continue;
+      const mx = Math.max(...vals.map(num));
+      if(mx > bestMax){ bestMax = mx; bestQty = i; }
+    }
+    if(bestQty >= 0 && bestMax >= 10) map[bestQty] = 'qty';
+    return map;
+  }
+  function mapKey(){ return 'po.map.' + (el('f-sup').value||'') + '.' + (pasteRows[0]||[]).length; }
+  function renderMap(){
+    const cols = Math.max(...pasteRows.map(r=>r.length));
+    let saved = null;
+    try{ const j = localStorage.getItem(mapKey()); if(j) saved = JSON.parse(j); }catch(e){}
+    const map = (saved && saved.length === cols) ? saved : guessMap(pasteRows);
+    el('mapHead').innerHTML = Array.from({length:cols}, (_,i)=>
+      `<th><select data-col="${i}">${MAP_ROLES.map(([v,t])=>
+        `<option value="${v}"${map[i]===v?' selected':''}>${t}</option>`).join('')}</select></th>`).join('');
+    el('mapBody').innerHTML = pasteRows.slice(0,3).map(r=>
+      `<tr>${Array.from({length:cols}, (_,i)=>`<td class="tiny">${esc(r[i]||'')}</td>`).join('')}</tr>`).join('')
+      + (pasteRows.length>3 ? `<tr><td class="tiny muted" colspan="${cols}">ほか${pasteRows.length-3}行</td></tr>` : '');
+    el('mapWrap').hidden = false;
+  }
+  function addPastedMapped(){
+    const map = Array.from(document.querySelectorAll('#mapHead select')).map(sl=>sl.value);
+    try{ localStorage.setItem(mapKey(), JSON.stringify(map)); }catch(e){}
+    const at = (r, role) => { const i = map.indexOf(role); return i < 0 ? '' : (r[i]||'').trim(); };
+    const pool = supItems();
+    let ok = 0, miss = 0;
+    pasteRows.forEach(r=>{
+      const code = at(r,'code'), nm = at(r,'name');
+      if(!code && !nm) return;
+      const qty = parseFloat(String(at(r,'qty')).replace(/[,\s]/g,''));
+      const rawP = at(r,'price');
+      const price = rawP === '' ? null : parseFloat(String(rawP).replace(/[^0-9.\-]/g,''));
+      let unit = at(r,'unit');
+      if(!unit && /円\s*\/\s*(\S+)/.test(rawP)) unit = RegExp.$1;
+      const hit = (code && (pool.find(i=>i.c===code) || pool.find(i=>i.c && code.startsWith(i.c))))
+               || (nm && (pool.find(i=>i.n===nm) || pool.find(i=>i.n && i.n.includes(nm))));
+      if(hit){
+        lines.push({code:hit.c, name:hit.n, size:at(r,'size')||hit.z, color:at(r,'color')||hit.k,
+          form:at(r,'form')||hit.f, pack:'', qty:isNaN(qty)?'':qty, unit:unit||hit.u,
+          price:(price==null||isNaN(price)) ? (hit.p==null?'':hit.p) : price, cur:hit.cu||'JPY', due:'', register:false});
+        ok++;
+      } else {
+        lines.push({code:code, name:nm||code, size:at(r,'size'), color:at(r,'color'), form:at(r,'form'),
+          pack:'', qty:isNaN(qty)?'':qty, unit:unit,
+          price:(price==null||isNaN(price))?'':price, cur:'JPY', due:'', register:true});
+        miss++;
+      }
+    });
+    lines = lines.filter(l => l.name || l.qty);
+    if(!lines.length) lines = [blankLine()];
+    renderLines();
+    el('pasteMsg').textContent = `${ok}件はマスタと一致、${miss}件は新規として追加しました。`;
+    el('pasteArea').value = '';
+    el('mapWrap').hidden = true;
+    pasteRows = [];
   }
   function addPasted(){
     const rows = (el('pasteArea').value||'').split(/\r?\n/).map(r=>r.trim()).filter(Boolean);
@@ -1759,7 +1865,16 @@
   el('gridAdd').onclick = addGridToLines;
   el('g-prev').onchange = e => { if(e.target.value){ copyOrder(e.target.value); e.target.value=''; } };
   el('pasteBtn').onclick = ()=>{ el('pasteWrap').hidden = !el('pasteWrap').hidden; };
-  el('pasteAdd').onclick = addPasted;
+  el('pasteAdd').onclick = ()=>{
+    pasteRows = splitPasted(el('pasteArea').value);
+    if(!pasteRows.length){ el('pasteMsg').textContent = '貼り付けた中身がありません。'; return; }
+    const cols = Math.max(...pasteRows.map(r=>r.length));
+    if(cols <= 3){ el('mapWrap').hidden = true; addPasted(); return; }   // 3列までは今までどおり
+    el('pasteMsg').textContent = `${pasteRows.length}行・${cols}列を読み取りました。列の割り当てを確かめてください。`;
+    renderMap();
+  };
+  el('mapGo').onclick = addPastedMapped;
+  el('mapCancel').onclick = ()=>{ el('mapWrap').hidden = true; pasteRows = []; el('pasteMsg').textContent = ''; };
   el('addLine').onclick = ()=>{ lines.push(blankLine()); renderLines(); };
   el('addLine10').onclick = ()=>{ for(let n=0;n<10;n++) lines.push(blankLine()); renderLines(); };
   // 明細の入力。日本語入力（IME）の変換中に表を作り直すと、
