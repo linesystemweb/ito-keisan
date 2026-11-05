@@ -591,7 +591,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v29';
+  const APP_VER     = '2026-11-05 v30';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -837,11 +837,11 @@
     return /テスト|ﾃｽﾄ|test/i.test(String(o.note||'') + ' ' + String(o.memo||''));
   }
   // メールの下書きを保管サーバに預ける。送るのは保管サーバ側（5分後）。
-  async function storeMailQ(o){
+  async function storeMailQ(o, again){
     if(!isMailSupplier(o.supplier)) return false;
-    const m = mailParts(o);
+    const m = mailParts(o, again);
     if(!m.to) return false;
-    const html = orderBodyHtml(o);
+    const html = orderBodyHtml(o, again);
     if(html.length > 45000) return false;
     // 添付する注文書PDFのもと。保管サーバ側でPDFに変えて付けます。
     try{
@@ -1581,13 +1581,13 @@
       <p style="margin-top:12px;text-align:center">納品書及び送り状に発注者名を明記してください。</p>`;
     el('previewCard').hidden = false;
   }
-  function mailParts(o){
+  function mailParts(o, again){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     const body = o.lines.map(l=>`・${l.code?l.code+' ':''}${l.name} ${[l.size,l.color,l.form].filter(Boolean).join('　')} ${numf(l.qty)}${l.unit||''}`).join('\n');
     return {
       to: sup.mail || '',
       cc: sup.cc || '',
-      subject: `【発注】${o.no} 株式会社ラインシステム`,
+      subject: `${again?'【再送】':'【発注】'}${o.no} 株式会社ラインシステム`,
       body: `${sup.full||o.supplier} ご担当者様\n\nいつもお世話になっております。株式会社ラインシステムの${o.staff}です。\n下記の通り発注いたします。注文書を添付いたしますのでご確認ください。\n\n注文番号：${o.no}\n希望納期：${o.due||'ご連絡願います'}\n納入先：${o.to}\n\n${body}\n\n何卒よろしくお願いいたします。\n株式会社ラインシステム ${o.staff}\nTEL 0742-64-7555 / FAX 0742-64-7556`
     };
   }
@@ -1690,6 +1690,7 @@
         ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
         ${isFaxSupplier(o.supplier) ? `<button class="btn quiet small" data-faxreg="${esc(o.id)}">この注文書を自動FAXに載せる</button>` : ''}
         ${isMailSupplier(o.supplier) && !o.mailSentAt ? `<button class="btn quiet small" data-mailreg="${esc(o.id)}">この注文書を自動メールに載せる</button>` : ''}
+        ${isMailSupplier(o.supplier) && o.mailSentAt ? `<button class="btn quiet small" data-mailagain="${esc(o.id)}">注文書をPDF付きで送り直す</button>` : ''}
         ${fix ? `<button class="btn small" data-fixsave="${esc(o.id)}">直して保存</button>
                  <button class="btn quiet small" data-fixoff="${esc(o.id)}">やめる</button>`
               : `<button class="btn quiet small" data-fixon="${esc(o.id)}">明細を直す</button>`}
@@ -2274,12 +2275,16 @@
       + `</div>`;
   }
   // メールの本文（注文書のあとに差出人の署名を付ける）
-  function orderBodyHtml(o){
+  function orderBodyHtml(o, again){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     return `<div style="${MD.doc}">`
       + `<p>${esc(sup.full||o.supplier)} ご担当者様</p>`
-      + `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
-      + `下記のとおり注文いたします。同じ内容の注文書をPDFで添付しておりますので、ご確認のほどよろしくお願いいたします。</p></div>`
+      + (again
+        ? `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
+          + `先日お送りした注文番号 ${esc(o.no)} について、<b>内容は変わりません</b>が、注文書を見やすく整えてPDFで添付し、あらためてお送りいたします。<br>`
+          + `重ねての発注ではございませんので、ご注意ください。</p></div>`
+        : `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
+          + `下記のとおり注文いたします。同じ内容の注文書をPDFで添付しておりますので、ご確認のほどよろしくお願いいたします。</p></div>`)
       + orderDocHtml(o)
       + `<div style="${MD.doc}"><hr style="border:none;border-top:1px solid #ccc;margin:18px 0">`
       + `<p style="font-size:13px">株式会社ラインシステム　${esc(o.staff)}<br>`
@@ -2520,6 +2525,23 @@
       el('d-msg2').textContent = put
         ? '自動メールに載せました。' + (o.status === 'pending' ? '承認されると送信されます。' : '5分後に送信されます。')
         : '載せられませんでした（メールの仕入先でないか、送信先メールが未登録です）。';
+      return;
+    }
+    const aid = e.target.dataset.mailagain;
+    if(aid){
+      const o = orders.find(x=>x.id===aid); if(!o) return;
+      if(isTestOrder(o)){ el('d-msg2').textContent = '備考に「テスト」とあるので、自動送信はしません。'; return; }
+      const m = mailParts(o, true);
+      if(!confirm(o.no + ' を ' + (m.to||'（宛先なし）') + ' へ送り直します。\n\n'
+        + '件名は「' + m.subject + '」になり、本文に「内容は変わりません。重ねての発注ではありません」と入ります。\n'
+        + '注文書はPDFで添付されます。\n\n5分後に自動で送信されます。よろしいですか？')) return;
+      el('d-msg2').textContent = '送り直す準備をしています…';
+      const put = await storeMailQ(o, true);
+      if(!put){ el('d-msg2').textContent = '準備できませんでした（送信先メールが未登録かもしれません）。'; return; }
+      const clr = await api('putSetting', { key: 'mailsent:' + o.id, value: '' });
+      if(!(clr && clr.ok)){ el('d-msg2').textContent = '送信ずみの印を外せませんでした。もう一度お試しください。'; return; }
+      await loadAll(); renderAll(); renderDetail(o.id);
+      el('d-msg2').textContent = '5分後に送り直します。';
       return;
     }
     const fid = e.target.dataset.faxreg;
