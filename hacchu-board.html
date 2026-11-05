@@ -443,6 +443,28 @@
         <select id="m-cat" style="max-width:150px;margin-left:auto"><option value="">区分すべて</option><option>YGK商品</option><option>バルク</option><option>巻き</option><option>資材</option><option>針・金具</option><option>ウキ材</option><option>それ以外</option></select>
         <input id="m-q" placeholder="品番・品名で検索" style="max-width:240px">
         <button class="btn quiet small" id="m-csv">CSVで書き出す</button>
+        <button class="btn quiet small" id="miBtn">単価表を貼り付けて取り込む</button>
+      </div>
+      <div id="miWrap" hidden style="margin-top:10px;border:1px solid #d7dbe0;border-radius:8px;padding:10px">
+        <div class="row" style="align-items:flex-end">
+          <label class="field" style="max-width:220px"><span>取り込む仕入先</span><select id="miSup"></select></label>
+          <label class="field" style="max-width:170px"><span>単価の時点</span><input type="date" id="miDate"></label>
+          <label class="field" style="max-width:220px"><span>出典（どこから来た表か）</span><input id="miSrc" placeholder="例 大一製針 単価表"></label>
+          <label class="field" style="max-width:150px"><span>区分（新しい品目用）</span><select id="miCat">
+            <option value="">そのまま</option><option>YGK商品</option><option>バルク</option><option>巻き</option>
+            <option>資材</option><option>針・金具</option><option>ウキ材</option><option>それ以外</option></select></label>
+        </div>
+        <label class="field" style="margin-top:8px"><span>Excelの表をそのまま貼り付けてください（見出しの行があっても大丈夫です）</span>
+          <textarea id="miArea" rows="5" placeholder="商品コード&#9;商品名&#9;仕入先&#9;サイズ&#9;…"></textarea></label>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="miRead">読み込む</button>
+          <button class="btn quiet small" id="miCancel">やめる</button>
+          <span class="tiny muted" id="miMsg"></span></div>
+        <div id="miMapWrap" hidden style="margin-top:10px">
+          <div class="tiny muted">どの列が何かを選んでください。「仕入先」の列を選ぶと、上で選んだ仕入先の行だけ取り込みます。</div>
+          <div class="tablewrap" style="margin-top:6px"><table><thead><tr id="miHead"></tr></thead><tbody id="miBody"></tbody></table></div>
+          <div class="row" style="margin-top:8px"><button class="btn small" id="miGo">この並びで取り込む</button>
+            <span class="tiny muted" id="miGoMsg"></span></div>
+        </div>
       </div>
       <div class="tablewrap">
         <table>
@@ -566,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v22';
+  const APP_VER     = '2026-11-05 v23';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1122,6 +1144,83 @@
     renderLines();
     el('lineHint').textContent = `${o.no} の明細を複製しました。数量を直してください。`;
   }
+  // ---------- 単価表をまとめて品目マスタに取り込む ----------
+  const MI_ROLES = [['','使わない'],['c','品番'],['n','品名'],['s','仕入先'],['z','サイズ'],
+                    ['k','色'],['f','形態'],['p','単価'],['u','単位'],['g','区分']];
+  let miRows = [];
+  function miGuess(rows){
+    const cols = Math.max(...rows.map(r=>r.length));
+    const col = i => rows.map(r=>r[i]||'').filter(v=>v!=='');
+    const map = new Array(cols).fill('');
+    const sups = suppliers().map(x=>x.n);
+    const head = rows[0] || [];
+    // 1行目が見出しなら、そこから決める
+    const byHead = {'商品コード':'c','品番':'c','商品名':'n','品名':'n','仕入先':'s','メーカー':'s',
+      'サイズ':'z','御社サイズ':'z','号数':'z','色':'k','形態':'f','単価':'p','仕入単価':'p','単位':'u','区分':'g'};
+    let used = false;
+    head.forEach((h,i)=>{ const k = byHead[String(h).trim()]; if(k && !map.includes(k)){ map[i]=k; used=true; } });
+    if(used) return map;
+    for(let i=0;i<cols;i++){
+      const vals = col(i); if(!vals.length) continue;
+      if(vals.some(v=>sups.includes(v))){ map[i]='s'; continue; }
+      if(vals.some(v=>/円/.test(v))){ map[i]='u'; continue; }
+    }
+    let bestName=-1,bestLen=0;
+    for(let i=0;i<cols;i++){
+      if(map[i]) continue;
+      const vals=col(i); if(!vals.length) continue;
+      if(vals.every(v=>!isNaN(parseFloat(v)))) continue;
+      const avg=vals.reduce((a,v)=>a+v.length,0)/vals.length;
+      if(avg>bestLen){ bestLen=avg; bestName=i; }
+    }
+    if(bestName>=0) map[bestName]='n';
+    return map;
+  }
+  function miRender(){
+    const cols = Math.max(...miRows.map(r=>r.length));
+    const map = miGuess(miRows);
+    el('miHead').innerHTML = Array.from({length:cols},(_,i)=>
+      `<th><select data-mi="${i}">${MI_ROLES.map(([v,t])=>
+        `<option value="${v}"${map[i]===v?' selected':''}>${t}</option>`).join('')}</select></th>`).join('');
+    el('miBody').innerHTML = miRows.slice(0,3).map(r=>
+      `<tr>${Array.from({length:cols},(_,i)=>`<td class="tiny">${esc(r[i]||'')}</td>`).join('')}</tr>`).join('')
+      + (miRows.length>3?`<tr><td class="tiny muted" colspan="${cols}">ほか${miRows.length-3}行</td></tr>`:'');
+    el('miMapWrap').hidden = false;
+  }
+  async function miImport(){
+    const map = Array.from(document.querySelectorAll('#miHead select')).map(sl=>sl.value);
+    const at = (r, role) => { const i = map.indexOf(role); return i < 0 ? '' : String(r[i]||'').trim(); };
+    const sup = el('miSup').value;
+    const date = el('miDate').value || today();
+    const src = el('miSrc').value.trim();
+    const cat = el('miCat').value;
+    const hasSupCol = map.includes('s');
+    const out = [];
+    let skipped = 0;
+    miRows.forEach(r=>{
+      const name = at(r,'n');
+      if(!name) { skipped++; return; }
+      if(hasSupCol && at(r,'s') !== sup){ skipped++; return; }
+      const rawP = at(r,'p');
+      const pv = rawP === '' ? '' : parseFloat(rawP.replace(/[^0-9.\-]/g,''));
+      let unit = at(r,'u');
+      if(/円\s*\/\s*(\S+)/.test(unit)) unit = RegExp.$1;
+      out.push({ s: sup, c: at(r,'c'), n: name, z: at(r,'z'), k: at(r,'k'), f: at(r,'f'),
+        u: unit, p: (pv === '' || isNaN(pv)) ? '' : pv, cu: 'JPY', d: date, src: src, g: cat });
+    });
+    if(!out.length){ el('miGoMsg').textContent = '取り込む行がありませんでした。列の割り当てと仕入先を確かめてください。'; return; }
+    if(!confirm(sup + ' の品目を ' + out.length + '件 取り込みます。よろしいですか？')) return;
+    el('miGoMsg').textContent = out.length + '件を送っています…';
+    const r = await api('putItems', { rows: out });
+    if(!(r && r.ok)){ el('miGoMsg').textContent = '取り込めませんでした：' + ((r && r.error) || ''); return; }
+    await loadAll();
+    el('miGoMsg').textContent = `${r.updated}件は今ある品目を書き替え、${r.added}件を新しく足しました。`
+      + (skipped ? `（${skipped}行は対象外として飛ばしました）` : '');
+    el('miArea').value = '';
+    el('miMapWrap').hidden = true;
+    miRows = [];
+  }
+
   // ---------- Excelの貼り付け（列の割り当て） ----------
   const MAP_ROLES = [['','使わない'],['code','品番'],['name','品名'],['size','サイズ・号数'],
                      ['color','色'],['form','形態'],['qty','数量'],['unit','単位'],['price','単価']];
@@ -1883,6 +1982,23 @@
     el('pasteMsg').textContent = `${pasteRows.length}行・${cols}列を読み取りました。列の割り当てを確かめてください。`;
     renderMap();
   };
+  el('miBtn').onclick = ()=>{
+    const w = el('miWrap');
+    w.hidden = !w.hidden;
+    if(!w.hidden){
+      fillSelect(el('miSup'), suppliers().map(x=>({v:x.n,t:x.n})), el('f-sup').value);
+      if(!el('miDate').value) el('miDate').value = today();
+    }
+  };
+  el('miCancel').onclick = ()=>{ el('miWrap').hidden = true; el('miMapWrap').hidden = true; miRows = []; };
+  el('miRead').onclick = ()=>{
+    miRows = splitPasted(el('miArea').value).filter(r=>r.some(c=>String(c).trim()!==''));
+    if(!miRows.length){ el('miMsg').textContent = '貼り付けた中身がありません。'; return; }
+    const cols = Math.max(...miRows.map(r=>r.length));
+    el('miMsg').textContent = `${miRows.length}行・${cols}列を読み取りました。`;
+    miRender();
+  };
+  el('miGo').onclick = miImport;
   el('mapGo').onclick = addPastedMapped;
   el('mapCancel').onclick = ()=>{ el('mapWrap').hidden = true; pasteRows = []; el('pasteMsg').textContent = ''; };
   el('addLine').onclick = ()=>{ lines.push(blankLine()); renderLines(); };
