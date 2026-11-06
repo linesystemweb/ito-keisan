@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v36';
+  const APP_VER     = '2026-11-06 v37';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1549,7 +1549,7 @@
     return {
       to: sup.mail || '',
       cc: sup.cc || '',
-      subject: `${again?'【再送】':'【発注】'}${o.no} 株式会社ラインシステム`,
+      subject: `${again ? (o.revNote ? '【訂正】' : '【再送】') : '【発注】'}${o.no} 株式会社ラインシステム`,
       body: `${sup.full||o.supplier} ご担当者様\n\nいつもお世話になっております。株式会社ラインシステムの${o.staff}です。\n下記の通り発注いたします。注文書を添付いたしますのでご確認ください。\n\n注文番号：${o.no}\n希望納期：${o.due||'ご連絡願います'}\n納入先：${o.to}\n\n${body}\n\n何卒よろしくお願いいたします。\n株式会社ラインシステム ${o.staff}\nTEL 0742-64-7555 / FAX 0742-64-7556`
     };
   }
@@ -1653,7 +1653,7 @@
         ${o.status==='pending' ? `<button class="btn small" data-renotify="${esc(o.id)}">承認依頼をもう一度通知する</button>` : ''}
         ${isFaxSupplier(o.supplier) ? `<button class="btn quiet small" data-faxreg="${esc(o.id)}">この注文書を自動FAXに載せる</button>` : ''}
         ${isMailSupplier(o.supplier) && !o.mailSentAt ? `<button class="btn quiet small" data-mailreg="${esc(o.id)}">この注文書を自動メールに載せる</button>` : ''}
-        ${isMailSupplier(o.supplier) && o.mailSentAt ? `<button class="btn quiet small" data-mailagain="${esc(o.id)}">注文書をPDF付きで送り直す</button>` : ''}
+        ${isMailSupplier(o.supplier) && o.mailSentAt ? `<button class="btn quiet small" data-mailagain="${esc(o.id)}">${o.revNote?'訂正版をメールで送り直す':'注文書をPDF付きで送り直す'}</button>` : ''}
         ${fix ? `<button class="btn small" data-fixsave="${esc(o.id)}">直して保存</button>
                  <button class="btn quiet small" data-fixoff="${esc(o.id)}">やめる</button>`
               : `<button class="btn quiet small" data-fixon="${esc(o.id)}">明細を直す</button>`}
@@ -2255,9 +2255,14 @@
     return `<div style="${MD.doc}">`
       + `<p>${esc(sup.full||o.supplier)} ご担当者様</p>`
       + (again
-        ? `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
-          + `先日お送りした注文番号 ${esc(o.no)} について、<b>内容は変わりません</b>が、注文書を見やすく整えてPDFで添付し、あらためてお送りいたします。<br>`
-          + `重ねての発注ではございませんので、ご注意ください。</p></div>`
+        ? (o.revNote
+          ? `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
+            + `先にお送りした注文番号 ${esc(o.no)} の注文書を<b>訂正</b>いたします。<br>`
+            + `添付の注文書が正となりますので、先にお送りしたものは破棄してください。<br>`
+            + `重ねての発注ではございませんので、ご注意ください。</p></div>`
+          : `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
+            + `先日お送りした注文番号 ${esc(o.no)} について、<b>内容は変わりません</b>が、注文書を見やすく整えてPDFで添付し、あらためてお送りいたします。<br>`
+            + `重ねての発注ではございませんので、ご注意ください。</p></div>`)
         : `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
           + `下記のとおり注文いたします。同じ内容の注文書をPDFで添付しておりますので、ご確認のほどよろしくお願いいたします。</p></div>`)
       + orderDocHtml(o, 14)
@@ -2534,7 +2539,11 @@
       if(isTestOrder(o)){ el('d-msg2').textContent = '備考に「テスト」とあるので、自動送信はしません。'; return; }
       const m = mailParts(o, true);
       if(!confirm(o.no + ' を ' + (m.to||'（宛先なし）') + ' へ送り直します。\n\n'
-        + '件名は「' + m.subject + '」になり、本文に「内容は変わりません。重ねての発注ではありません」と入ります。\n'
+        + '件名は「' + m.subject + '」になります。\n'
+        + (o.revNote
+            ? '本文は「先の注文書を訂正します。添付が正です」という文面になります。\n'
+            : '本文は「内容は変わりません。重ねての発注ではありません」という文面になります。\n'
+              + '※内容を直したあとなら、先に「訂正の一文」を入れて「訂正版にする」を押してください。\n')
         + '注文書はPDFで添付されます。\n\n5分後に自動で送信されます。よろしいですか？')) return;
       el('d-msg2').textContent = '送り直す準備をしています…';
       const put = await storeMailQ(o, true);
