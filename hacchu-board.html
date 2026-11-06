@@ -76,19 +76,10 @@
   .banner{border:1px solid var(--warn);background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:9px 12px;margin-bottom:14px;font-size:13px}
   .stat{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
   .stat b{font-size:22px;font-family:"Zen Kaku Gothic New",sans-serif;font-variant-numeric:tabular-nums}
-  .sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:28px;font-size:22px;line-height:1.5;max-width:920px}
-  .sheet h4{text-align:center;letter-spacing:.5em;font-size:34px;margin:0 0 20px;font-family:"Zen Kaku Gothic New",sans-serif}
-  .sheet table{font-size:19px;margin-top:10px;table-layout:fixed}
-  .sheet th,.sheet td{border-bottom:1px solid #ccc;color:#111;padding:11px 12px;vertical-align:middle}
-  .sheet thead th{border-bottom:2px solid #111;padding-bottom:8px}
-  .sheet tbody tr:last-child td{border-bottom:2px solid #111}
-  .sheet .co{font-size:20px}
-  .sheet th{font-size:16px;letter-spacing:.04em}
-  .sheet td{white-space:normal;word-break:keep-all;overflow-wrap:break-word}
-  .sheet th{word-break:keep-all;overflow-wrap:break-word}
-  .sheet td:nth-child(2){font-size:.88em}
-  @media (max-width:700px){ .sheet{font-size:17px} .sheet h4{font-size:26px} .sheet table{font-size:15px} }
-  .sheet .co{text-align:right;line-height:1.5}
+  /* 注文書の中身の体裁は、どの出口でも同じになるよう作る側で全部指定している。
+     ここは外側の白い紙の見た目だけ。 */
+  .sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:28px;max-width:920px}
+  @media (max-width:560px){ .sheet{padding:16px} }
   .lines td{padding:4px 5px}
   .lines input,.lines select{padding:5px 6px;font-size:12.5px}
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
@@ -597,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v33';
+  const APP_VER     = '2026-11-06 v34';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -861,10 +852,9 @@
     return !!(r && r.ok);
   }
   function faxStandaloneHtml(o){
-    showSheet(o);
     return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>'
-      + esc(o.no) + '</title><style>' + FAX_CSS + '</style></head><body><div class="sheet">'
-      + el('sheet').innerHTML + '</div></body></html>';
+      + esc(o.no) + '</title><style>@page{size:A4;margin:14mm}body{margin:0;background:#fff}</style>'
+      + '</head><body>' + orderDocHtml(o, 13) + '</body></html>';
   }
   async function storeFaxHtml(o){
     if(!isFaxSupplier(o.supplier)) return false;
@@ -1536,55 +1526,8 @@
   function sheetOrder(){ return shownOrder || currentDraft(); }
   function showSheet(o){
     shownOrder = o;
-    const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
-    let net = 0, askPrice = 0;          // askPrice＝単価未定のまま出す行数
-    // 荷姿・納期は入っている注文のときだけ列を出す（空の列で紙を汚さないため）
-    const hasPack = o.lines.some(l=>String(l.pack||'').trim());
-    const hasDue  = o.lines.some(l=>String(l.due||'').trim());
-    const rows = o.lines.map(l=>{
-      const amt = (l.qty!=null && l.price!=null) ? l.qty*l.price : null;
-      if(amt!=null && l.cur!=='USD') net += amt;
-      if(l.price==null) askPrice++;
-      return `<tr><td>${l.no}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form].filter(Boolean).join('　'))}</td>
-        ${hasPack?`<td>${esc(l.pack||'')}</td>`:''}
-        <td style="text-align:right">${numf(l.qty)}</td><td>${esc(l.unit)}</td>
-        <td style="text-align:right">${l.price==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(l.price)}</td>
-        <td style="text-align:right">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>
-        ${hasDue?`<td>${esc(l.due||'')}</td>`:''}</tr>`;
-    }).join('');
-    const tax = Math.floor(net*0.1);
-    el('sheet').innerHTML = `
-      <h4>注文書</h4>
-      <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
-        <div>
-          <div style="font-size:26px;font-weight:700">${esc(sup.full||o.supplier)}　御中</div>
-          <div style="margin-top:8px">注文番号 : ${esc(o.no)}${o.revNote?'（訂正）':''}</div>
-          <div>納期 : ${esc(o.due||'納期ご連絡願います。')}</div>
-          <div>納入先 : ${esc(o.to)}</div>
-          <div>梱包 : ${esc(o.packing)}</div>
-        </div>
-        <div class="co">
-          <div>${esc(jdate(o.date))}</div>
-          <div style="font-weight:700">㈱ラインシステム</div>
-          <div>〒630-8453 奈良市西九条町2-5-10</div>
-          <div>TEL : 0742-64-7555</div>
-          <div>FAX : 0742-64-7556</div>
-          <div style="margin-top:6px">発注者 : ${esc(o.staff)}</div>
-        </div>
-      </div>
-      ${o.revNote?`<p style="border:2px solid #111;padding:6px 12px;margin:10px 0;font-weight:700">${esc(o.revNote)}</p>`:''}
-      <p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>
-      ${o.note?`<p style="font-weight:700;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:''}
-      <table style="margin-top:8px">${sheetCols(hasPack,hasDue)}<thead><tr><th>No</th><th>商品コード</th><th>商品名</th><th>規格</th>${hasPack?'<th>荷姿</th>':''}<th style="text-align:right">数量</th><th>単位</th><th style="text-align:right">単価</th><th style="text-align:right">金額</th>${hasDue?'<th>納期・着指定</th>':''}</tr></thead><tbody>${rows}</tbody></table>
-      <div style="display:flex;justify-content:flex-end;gap:18px;margin-top:10px">
-        <div style="text-align:right">
-          <div>税抜小計 ${yen(net)}</div>
-          <div>消費税 10% ${yen(tax)}</div>
-          <div style="border:2px solid #111;padding:6px 12px;margin-top:6px;font-weight:700;font-size:25px">税込合計 ${yen(net+tax)}</div>
-          ${askPrice?`<div style="margin-top:6px;font-size:13px">※単価未定の明細が${askPrice}行あります。<br>上記合計は確定ではありません。</div>`:''}
-        </div>
-      </div>
-      <p style="margin-top:12px;text-align:center">納品書及び送り状に発注者名を明記してください。</p>`;
+    // 画面も紙も同じ組み方。大きさだけ画面用に少し大きくする。
+    el('sheet').innerHTML = orderDocHtml(o, 17);
     el('previewCard').hidden = false;
     if(el('mailsheet')) showPaperView();
   }
@@ -2178,12 +2121,11 @@
     const W = 794;                     // A4の幅（96dpi）。ptの指定がそのまま合う
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;left:-20000px;top:0;width:'+W+'px;background:#fff';
-    const st = document.createElement('style'); st.textContent = FAX_CSS_PDF;
     const sheet = document.createElement('div');
     sheet.id = 'faxsheet';
     sheet.style.cssText = 'width:'+W+'px;padding:53px;box-sizing:border-box;background:#fff';
-    sheet.innerHTML = el('sheet').innerHTML;
-    box.appendChild(st); box.appendChild(sheet);
+    sheet.innerHTML = orderDocHtml(sheetOrder(), 13);   // 画面・メールと同じ組み方
+    box.appendChild(sheet);
     document.body.appendChild(box);
     try{
       if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
@@ -2218,9 +2160,7 @@
       blob = await buildFaxPdfBlob();
     }catch(e){
       // PDFが作れないときはHTMLで出す（DELL側でも変換できる）
-      blob = '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>'
-        + esc(o.no) + '</title><style>' + FAX_CSS + '</style></head><body><div class="sheet">'
-        + el('sheet').innerHTML + '</div></body></html>';
+      blob = faxStandaloneHtml(o);
       ext = 'html';
     }
     const fname = o.no + '_' + fax + '.' + ext;
@@ -2235,15 +2175,21 @@
   // メール本文と添付PDFに使う注文書。
   // メールソフトとGoogleのHTML→PDF変換のどちらでも崩れないよう、
   // 並べるのは表組みだけにして、体裁は全部タグの中に直接書く。
-  const MD = {
-    doc : 'font-family:\'Yu Gothic\',\'Hiragino Kaku Gothic ProN\',sans-serif;color:#000;font-size:14px;line-height:1.6',
-    td  : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top',
-    tdc : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;word-break:keep-all;overflow-wrap:break-word',
-    tdn : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;white-space:nowrap',
-    tdr : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;text-align:right;white-space:nowrap',
-    th  : 'border-bottom:2px solid #000;padding:7px 9px;font-size:13px;word-break:keep-all'
-  };
-  function orderDocHtml(o){
+  // 注文書の体裁。紙・FAX・画面・メール・添付PDF、どれも同じこの1か所から作る。
+  // 大きさだけ base（px）で変え、形（列幅・余白・線）は em でそろえてある。
+  function docStyle(base){
+    const pad = 'padding:.5em .62em';
+    return {
+      doc : `font-family:'Yu Gothic','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;`
+          + `color:#000;font-size:${base}px;line-height:1.6`,
+      td  : `border-bottom:1px solid #ccc;${pad};vertical-align:top;word-break:keep-all;overflow-wrap:break-word`,
+      tdn : `border-bottom:1px solid #ccc;${pad};vertical-align:top;white-space:nowrap`,
+      tdr : `border-bottom:1px solid #ccc;${pad};vertical-align:top;text-align:right;white-space:nowrap`,
+      th  : `border-bottom:2px solid #000;${pad};font-size:.92em;word-break:keep-all`
+    };
+  }
+  function orderDocHtml(o, base){
+    const MD = docStyle(base || 14);
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     let net = 0, askPrice = 0;
     const hasPack = o.lines.some(l=>String(l.pack||'').trim());
@@ -2271,29 +2217,30 @@
     const tax = Math.floor(net*0.1);
     const info = [['注文番号',esc(o.no)+(o.revNote?'（訂正）':'')],['注文日',esc(jdate(o.date))],
                   ['希望納期',esc(o.due||'ご連絡願います')],['納入先',esc(o.to)],['梱包',esc(o.packing||'')]]
-      .map(x=>`<tr><td style="padding:2px 18px 2px 0;white-space:nowrap"><b>${x[0]}</b></td><td style="padding:2px 0">${x[1]}</td></tr>`).join('');
+      .map(x=>`<tr><td style="padding:.15em 1.2em .15em 0;white-space:nowrap"><b>${x[0]}</b></td><td style="padding:.15em 0">${x[1]}</td></tr>`).join('');
     return `<div style="${MD.doc}">`
-      + `<div style="text-align:center;letter-spacing:.4em;font-size:24px;font-weight:bold;margin:0 0 18px">注文書</div>`
+      + `<div style="text-align:center;letter-spacing:.4em;font-size:1.75em;font-weight:bold;margin:0 0 .8em">注文書</div>`
       + `<table width="100%" style="border-collapse:collapse"><tr>`
-      + `<td valign="top" style="font-size:20px;font-weight:bold;padding:0;vertical-align:top">${esc(sup.full||o.supplier)}　御中</td>`
-      + `<td valign="top" align="right" style="font-size:13px;line-height:1.5;padding:0;text-align:right;vertical-align:top">${esc(jdate(o.date))}<br>`
-      + `<b style="font-size:15px">株式会社ラインシステム</b><br>〒630-8453 奈良市西九条町2-5-10<br>`
+      + `<td valign="top" style="font-size:1.45em;font-weight:bold;padding:0;vertical-align:top">${esc(sup.full||o.supplier)}　御中</td>`
+      + `<td valign="top" align="right" style="font-size:.93em;line-height:1.5;padding:0;text-align:right;vertical-align:top">${esc(jdate(o.date))}<br>`
+      + `<b style="font-size:1.1em">株式会社ラインシステム</b><br>〒630-8453 奈良市西九条町2-5-10<br>`
       + `TEL 0742-64-7555　FAX 0742-64-7556<br>発注者 ${esc(o.staff)}</td></tr></table>`
-      + `<table style="border-collapse:collapse;margin:14px 0 10px">${info}</table>`
+      + `<table style="border-collapse:collapse;margin:.8em 0 .6em">${info}</table>`
       + (o.revNote?`<p style="border:2px solid #000;padding:6px 12px;margin:10px 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
-      + `<p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
+      + `<p style="margin:.7em 0 .25em">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
       + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:'')
-      + `<table width="100%" style="border-collapse:collapse;margin-top:8px"><tr>${ths}</tr>${rows}</table>`
-      + `<table width="100%" style="border-collapse:collapse;margin-top:10px"><tr><td align="right" style="padding:0;text-align:right">`
+      + `<table width="100%" style="border-collapse:collapse;table-layout:fixed;margin-top:.5em"><tr>${ths}</tr>${rows}</table>`
+      + `<table width="100%" style="border-collapse:collapse;margin-top:.6em"><tr><td align="right" style="padding:0;text-align:right">`
       + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
-      + `<span style="display:inline-block;border:2px solid #000;padding:6px 14px;margin-top:6px;font-weight:bold;font-size:18px">税込合計 ${yen(net+tax)}</span>`
+      + `<span style="display:inline-block;border:2px solid #000;padding:.35em .8em;margin-top:.35em;font-weight:bold;font-size:1.3em">税込合計 ${yen(net+tax)}</span>`
       + (askPrice?`<br><span style="font-size:12px">※単価未定の明細が${askPrice}行あります。上記合計は確定ではありません。</span>`:'')
       + `</td></tr></table>`
-      + `<p style="text-align:center;margin-top:14px">納品書及び送り状に発注者名を明記してください。</p>`
+      + `<p style="text-align:center;margin-top:.8em">納品書及び送り状に発注者名を明記してください。</p>`
       + `</div>`;
   }
   // メールの本文（注文書のあとに差出人の署名を付ける）
   function orderBodyHtml(o, again){
+    const MD = docStyle(14);
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     return `<div style="${MD.doc}">`
       + `<p>${esc(sup.full||o.supplier)} ご担当者様</p>`
@@ -2303,15 +2250,15 @@
           + `重ねての発注ではございませんので、ご注意ください。</p></div>`
         : `<p>いつもお世話になっております。株式会社ラインシステムの${esc(o.staff)}です。<br>`
           + `下記のとおり注文いたします。同じ内容の注文書をPDFで添付しておりますので、ご確認のほどよろしくお願いいたします。</p></div>`)
-      + orderDocHtml(o)
-      + `<div style="${MD.doc}"><hr style="border:none;border-top:1px solid #ccc;margin:18px 0">`
-      + `<p style="font-size:13px">株式会社ラインシステム　${esc(o.staff)}<br>`
+      + orderDocHtml(o, 14)
+      + `<div style="${MD.doc}"><hr style="border:none;border-top:1px solid #ccc;margin:1.2em 0">`
+      + `<p style="font-size:.93em">株式会社ラインシステム　${esc(o.staff)}<br>`
       + `〒630-8453 奈良市西九条町2-5-10<br>TEL 0742-64-7555／FAX 0742-64-7556</p></div>`;
   }
   // 添付PDFのもとになる1枚もののHTML
   function orderDocDoc(o){
     return '<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>' + esc(o.no)
-      + '</title></head><body style="margin:0;padding:28px;background:#fff">' + orderDocHtml(o) + '</body></html>';
+      + '</title></head><body style="margin:0;padding:28px;background:#fff">' + orderDocHtml(o, 13) + '</body></html>';
   }
 
   el('viewPaper').onclick = showPaperView;
