@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v37';
+  const APP_VER     = '2026-11-06 v38';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1666,6 +1666,7 @@
         <label class="field" style="max-width:520px"><span>訂正の一文（入れると注文書の上に枠で出ます。空にすると消えます）</span>
           <input id="d-rev" value="${esc(o.revNote||'')}" placeholder="【訂正】先にお送りした同番号の注文書は破棄してください。"></label>
         <button class="btn quiet small" data-revsave="${esc(o.id)}">訂正版にする</button>
+        ${o.revNote ? `<button class="btn quiet small" data-revclear="${esc(o.id)}">訂正をやめる</button>` : ''}
       </div>` : ''}
       <div class="tablewrap"><table><thead><tr><th>No</th><th>品名</th><th>規格</th><th class="num">発注</th><th class="num">入荷</th><th class="num">残</th><th class="num">単価</th><th>状態</th></tr></thead><tbody>
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;const del=!!fixDel[l.no];
@@ -2428,17 +2429,22 @@
                         : '　まだ送っていないので、自動のFAX・メールも出ません。'));
   }
   // 訂正の一文を入れる（注文書の上に枠で出る）
-  async function saveRev(oid){
+  const REV_DEFAULT = '【訂正】先にお送りした同番号の注文書は破棄してください。';
+  async function saveRev(oid, clear){
     const o = orders.find(x=>x.id===oid); if(!o) return;
     const box = el('d-rev');
-    const text = box ? box.value.trim() : '';
+    let text = box ? box.value.trim() : '';
+    // 空のまま押されたときは、うすい色で出ている例文をそのまま使う。
+    // （消したいときは「訂正をやめる」で消す）
+    if(!clear && !text) text = REV_DEFAULT;
+    if(clear) text = '';
     el('d-msg2').textContent = '保存しています…';
     const r = await api('putSetting', { key: 'rev:' + o.id, value: text });
     if(!(r && r.ok)){ el('d-msg2').textContent = '保存できませんでした。'; return; }
     await loadAll();
     renderDetail(oid);
     el('d-msg2').textContent = text
-      ? '訂正版にしました。「注文書を見る」から、FAX送信用PDFの保存やメールの作成ができます。'
+      ? '訂正版にしました（' + text + '）。メールの仕入先なら「訂正版をメールで送り直す」が使えます。'
       : '訂正の表示を消しました。';
   }
   el('detail').addEventListener('change', e=>{
@@ -2462,6 +2468,8 @@
     if(unc){ await cancelOrder(unc, true); return; }
     const rev = e.target.dataset.revsave;
     if(rev){ await saveRev(rev); return; }
+    const revc = e.target.dataset.revclear;
+    if(revc){ await saveRev(revc, true); return; }
     const fon = e.target.dataset.fixon;
     if(fon){ fixing = fon; fixAdd = []; fixEdits = {}; fixDel = {}; renderDetail(fon); el('d-msg2').textContent = '数量と単価を直して「直して保存」を押してください。行を足すこともできます。'; return; }
     const foff = e.target.dataset.fixoff;
