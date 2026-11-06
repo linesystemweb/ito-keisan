@@ -539,6 +539,20 @@
   let M = { items: [], suppliers: [], staff: [] };   // 保管サーバから受け取る
   const yen = n => (n==null||isNaN(n)) ? '—' : '¥' + Math.round(n).toLocaleString('ja-JP');
   const numf = n => (n==null||isNaN(n)) ? '' : Number(n).toLocaleString('ja-JP');
+  // 入力欄の数字。打ちながら3桁ごとにカンマを入れ、読むときは外す。
+  const numIn = v => parseFloat(String(v==null?'':v).replace(/,/g, ''));
+  function commaStr(v){
+    const t = String(v==null?'':v).replace(/,/g, '');
+    const m = t.match(/^(-?\d*)(\.\d*)?$/);
+    if(!m || m[1]==='' || m[1]==='-') return t;
+    return Number(m[1]).toLocaleString('en-US') + (m[2] || '');
+  }
+  function caretAfterDigits(text, digits){
+    if(digits <= 0) return 0;
+    let n = 0, i = 0;
+    for(; i < text.length; i++){ if(/[0-9.]/.test(text[i])){ n++; if(n >= digits){ i++; break; } } }
+    return i;
+  }
   const el = id => document.getElementById(id);
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   // 日付と時刻はパソコンの時計の設定に関係なく、いつも日本時間で出します。
@@ -588,7 +602,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v39';
+  const APP_VER     = '2026-11-06 v40';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -965,7 +979,8 @@
           : c.k==='size' ? ' list="sizeList"' : '';
         const full = (c.k==='name' && ln.name && ln.name.length > 16)
           ? `<div class="tiny muted" style="margin-top:3px;white-space:normal">${esc(ln.name)}</div>` : '';
-        return `<td data-l="${c.t}"><input data-i="${i}" data-k="${c.k}"${list} value="${esc(ln[c.k])}"${c.k==='name'?` title="${esc(ln.name)}"`:''}${c.num?' inputmode="decimal" class="num"':''}>${full}</td>`;
+        const shown = c.k==='qty' ? commaStr(ln[c.k]) : ln[c.k];
+        return `<td data-l="${c.t}"><input data-i="${i}" data-k="${c.k}"${list} value="${esc(shown)}"${c.k==='name'?` title="${esc(ln.name)}"`:''}${c.num?' inputmode="decimal" class="num"':''}>${full}</td>`;
       }).join('');
       const amt = lineAmount(ln);
       return `<tr><td class="rowno" data-l="">${i+1}行目</td>${cells}
@@ -976,14 +991,14 @@
     totals();
   }
   function lineAmount(ln){
-    const q = parseFloat(ln.qty), p = parseFloat(ln.price);
+    const q = numIn(ln.qty), p = numIn(ln.price);
     if(isNaN(q)||isNaN(p)) return null;
     return Math.round(q*p*100)/100;
   }
   function totals(){
     let qty=0, net=0;
     lines.forEach(ln=>{
-      const q=parseFloat(ln.qty); if(!isNaN(q)) qty+=q;
+      const q=numIn(ln.qty); if(!isNaN(q)) qty+=q;
       const a=lineAmount(ln); if(a!=null && ln.cur!=='USD') net+=a;
     });
     const tax = Math.floor(net*0.1);
@@ -1416,7 +1431,7 @@
   async function saveOrder(){
     if(!lines.some(l => l.name && l.qty)){ el('saveMsg').textContent='品名と数量が入った行がありません。'; return; }
     // 品名は入っているのに数量が空・0の行があると、金額が0のまま注文書が出てしまう
-    const noQty = lines.filter(l => l.name && !(parseFloat(l.qty) > 0));
+    const noQty = lines.filter(l => l.name && !(numIn(l.qty) > 0));
     if(noQty.length){
       el('saveMsg').textContent = '数量が入っていない行があります（'
         + noQty.map(l => l.name).join('、')
@@ -1439,7 +1454,7 @@
       approver: settings.useApproval ? approverLabel() : '',
       lines: lines.filter(l=>l.name).map((l,idx)=>({
         no: idx+1, code:l.code, name:l.name, size:l.size, color:l.color, form:l.form, pack:l.pack,
-        qty: parseFloat(l.qty)||0, unit:l.unit, price: l.price===''?null:parseFloat(l.price),
+        qty: numIn(l.qty)||0, unit:l.unit, price: l.price===''?null:numIn(l.price),
         priceFixed: l.price===''?null:parseFloat(l.price), cur:l.cur, due:l.due,
         recv: [], closed:false, priceLog: []
       }))
@@ -1511,7 +1526,7 @@
     const staff = meStaff();
     return {no:'（登録時に採番）', date: el('f-date').value||today(), staff: staff.n, supplier: el('f-sup').value,
       due: el('f-due').value, to: deliverTo(), packing: el('f-pack').value, note: el('f-note').value,
-      lines: lines.filter(l=>l.name).map((l,i)=>({no:i+1,...l, qty: parseFloat(l.qty)||0, price: l.price===''?null:parseFloat(l.price)}))};
+      lines: lines.filter(l=>l.name).map((l,i)=>({no:i+1,...l, qty: numIn(l.qty)||0, price: l.price===''?null:numIn(l.price)}))};
   }
   // 明細表の列幅。荷姿・納期の有無で変わるので、割合を足して100%にならす。
   function sheetCols(hasPack, hasDue){
@@ -1672,7 +1687,7 @@
       ${o.lines.map(l=>{const r=remaining(l);const p=l.priceFixed??l.price;const del=!!fixDel[l.no];
         return `<tr${del?' style="opacity:.45;text-decoration:line-through"':''}><td>${l.no}</td><td>${esc(l.name)}</td><td>${esc([l.size,l.color,l.form,l.pack].filter(Boolean).join('　'))}</td>
         <td class="num">${fix
-          ? `<input inputmode="decimal" style="width:90px;text-align:right" data-fq="${esc(o.id)}:${l.no}" value="${esc(String((fixEdits[l.no]&&fixEdits[l.no].qty!==undefined)?fixEdits[l.no].qty:l.qty))}">${esc(l.unit)}`
+          ? `<input inputmode="decimal" class="cma" style="width:100px;text-align:right" data-fq="${esc(o.id)}:${l.no}" value="${esc(commaStr((fixEdits[l.no]&&fixEdits[l.no].qty!==undefined)?fixEdits[l.no].qty:l.qty))}">${esc(l.unit)}`
           : numf(l.qty)+esc(l.unit)}</td><td class="num">${numf(r.got)}</td>
         <td class="num">${l.closed?'<span class="pill">打切り</span>':(r.over?`<span class="pill warn">+${numf(r.over)}</span>`:numf(r.rest))}</td>
         <td class="num">${fix
@@ -1693,7 +1708,7 @@
         </div></td>
         <td><input style="width:110px" placeholder="規格" data-nz="${i}" value="${esc(d.size||'')}"></td>
         <td class="num"><span class="row" style="gap:4px;justify-content:flex-end">
-          <input inputmode="decimal" style="width:90px;text-align:right" placeholder="数量" data-nq="${i}" value="${esc(d.qty||'')}">
+          <input inputmode="decimal" class="cma" style="width:100px;text-align:right" placeholder="数量" data-nq="${i}" value="${esc(commaStr(d.qty||''))}">
           <input style="width:54px" placeholder="単位" data-nu="${i}" value="${esc(d.unit||'')}"></span></td>
         <td class="num">—</td><td class="num">—</td>
         <td class="num"><input inputmode="decimal" style="width:90px;text-align:right" placeholder="単価" data-np2="${i}" value="${esc(d.price||'')}"></td>
@@ -1726,7 +1741,7 @@
       <td>${l.due?`<span class="${l.due<today()?'pill bad':'tiny'}">${esc(jdate(l.due))}</span>`:'<span class="tiny muted">—</span>'}</td>
       <td><div class="row" style="gap:4px">
         <input type="date" style="width:140px" data-rd="${esc(o.id)}:${l.no}" value="${today()}">
-        <input inputmode="decimal" style="width:80px" placeholder="数量" data-rq="${esc(o.id)}:${l.no}" value="${r.rest}">
+        <input inputmode="decimal" class="cma" style="width:92px;text-align:right" placeholder="数量" data-rq="${esc(o.id)}:${l.no}" value="${commaStr(r.rest)}">
         ${l.cur==='USD'?`<input inputmode="decimal" style="width:80px" placeholder="レート" data-rr="${esc(o.id)}:${l.no}">`:''}
         ${(l.priceFixed ?? l.price)==null?`<input inputmode="decimal" style="width:80px" placeholder="単価" data-rp="${esc(o.id)}:${l.no}">`:''}
         <button class="btn small" data-rsave="${esc(o.id)}:${l.no}">登録</button>
@@ -1748,7 +1763,7 @@
     }
     if(close){ l.closed = true; }
     else{
-      const q = parseFloat(document.querySelector(`[data-rq="${key}"]`).value);
+      const q = numIn(document.querySelector(`[data-rq="${key}"]`).value);
       const d = document.querySelector(`[data-rd="${key}"]`).value || today();
       const rateEl = document.querySelector(`[data-rr="${key}"]`);
       if(isNaN(q) || q===0) return;
@@ -2036,15 +2051,32 @@
   function applyLineEdit(t){
     const i = t.dataset.i, k = t.dataset.k;
     if(i==null||!k) return;
-    lines[i][k] = t.type==='checkbox' ? t.checked : t.value;
+    const digits = (k==='qty') ? String(t.value).slice(0, t.selectionStart).replace(/[^0-9.]/g,'').length : 0;
+    lines[i][k] = t.type==='checkbox' ? t.checked : (k==='qty' ? String(t.value).replace(/,/g,'') : t.value);
     if(k==='name'||k==='code'||k==='size') autofill(i,k);
     if(['qty','price','cur','name','code','size'].includes(k)){
       const pos = t.selectionStart;
       renderLines();
       const again = document.querySelector(`[data-i="${i}"][data-k="${k}"]`);
-      if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+      if(again){
+        again.focus();
+        const at = (k==='qty') ? caretAfterDigits(again.value, digits) : pos;
+        try{ again.setSelectionRange(at, at); }catch(e){}
+      }
     } else totals();
   }
+  // class="cma" の欄は、打ちながら3桁ごとにカンマを入れる
+  document.addEventListener('input', e=>{
+    const t = e.target;
+    if(!t || !t.classList || !t.classList.contains('cma')) return;
+    if(e.isComposing) return;
+    const digits = String(t.value).slice(0, t.selectionStart).replace(/[^0-9.]/g,'').length;
+    const out = commaStr(t.value);
+    if(out === t.value) return;
+    t.value = out;
+    const at = caretAfterDigits(out, digits);
+    try{ t.setSelectionRange(at, at); }catch(err){}
+  });
   el('lineBody').addEventListener('compositionstart', ()=>{ composing = true; });
   el('lineBody').addEventListener('compositionend', e=>{
     composing = false;
@@ -2313,7 +2345,7 @@
     for(const l of o.lines){
       const qb = document.querySelector('[data-fq="'+oid+':'+l.no+'"]');
       if(qb){
-        const q = parseFloat(qb.value);
+        const q = numIn(qb.value);
         if(isNaN(q) || q < 0){ msg.textContent = l.name + ' の数量を数字で入れてください。'; return; }
         const got = remaining(l).got;
         if(q < got){ msg.textContent = l.name + ' は入荷済み ' + numf(got) + ' があるので、それより少なくはできません。'; return; }
@@ -2363,7 +2395,7 @@
       let maxNo = 0;
       o.lines.forEach(l => { if(Number(l.no) > maxNo) maxNo = Number(l.no); });
       for(const d of adds){
-        const q = parseFloat(d.qty);
+        const q = numIn(d.qty);
         if(isNaN(q) || q <= 0){ msg.textContent = '足した行「' + d.name + '」の数量を入れてください。'; return; }
         const pv = String(d.price||'').trim() === '' ? null : parseFloat(d.price);
         if(pv !== null && (isNaN(pv) || pv < 0)){ msg.textContent = '足した行「' + d.name + '」の単価を数字で入れてください。'; return; }
