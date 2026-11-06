@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v38';
+  const APP_VER     = '2026-11-06 v39';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -889,7 +889,7 @@
     return lines.join('\n');
   }
   // 注文書が増えるたびに、承認者（共通の通知先）へ今月の発注を一覧で送る
-  function monthlyReport(order){
+  function monthlyReport(order, headline){
     const p = jstParts(new Date());
     const ym = p ? (p.year + '-' + p.month) : today().slice(0, 7);
     const mine = orders.filter(o => String(o.date || '').slice(0, 7) === ym
@@ -906,7 +906,7 @@
     });
     const shown = rows.length > 20 ? rows.slice(-20) : rows;   // 多いときは新しい20件
     const omit  = rows.length - shown.length;
-    const head = '注文書が増えました　' + (order.no || '') + '　' + order.supplier
+    const head = (headline || '注文書が増えました') + '　' + (order.no || '') + '　' + order.supplier
                + '　' + yen(orderTotals(order).gross);
     const out = [head, (p ? (+p.month) : '今') + '月の発注'].concat(shown);
     if(omit > 0) out.push('…ほか' + omit + '件');
@@ -2392,6 +2392,8 @@
       else { await storeMailQ(o2); extra = '　自動メールの中身も作り直しました。'; }
     }
     fixing = null; fixAdd = []; fixEdits = {}; fixDel = {};
+    // 琴浦社長に出している合計リストは送ったきりなので、直した分を出し直す
+    if(!isTestOrder(o2)){ try{ await notify(monthlyReport(o2, '注文書を直しました')); }catch(e){} }
     renderAll(); renderDetail(oid);
     // 下に注文書を開いたままのことがあるので、そちらも作り直す
     if(shownOrder && shownOrder.id === oid){ const fresh = orders.find(x=>x.id===oid); if(fresh) showSheet(fresh); }
@@ -2420,6 +2422,10 @@
     o.updatedAt = new Date().toISOString();
     const ok = await saveDoc('orders', o.id, o);
     if(!ok){ msg.textContent = '保存できませんでした。'; return; }
+    // 合計リストも出し直す（取り消した分は合計から外れる）
+    if(!isTestOrder(o)){
+      try{ await notify(monthlyReport(o, back ? '取り消しを元に戻しました' : '注文を取り消しました')); }catch(e){}
+    }
     renderAll(); renderDetail(oid);
     const sentAlready = o.faxSentAt || o.mailSentAt;
     el('d-msg2').textContent = back
