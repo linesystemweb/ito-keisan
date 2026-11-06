@@ -324,6 +324,10 @@
 
     <div class="card" id="previewCard" hidden>
       <div class="row"><h2 style="margin:0">注文書プレビュー</h2>
+        <span class="row" style="gap:6px;margin-left:10px">
+          <button class="btn small" id="viewPaper">紙・FAX版</button>
+          <button class="btn quiet small" id="viewMail">メール版</button>
+        </span>
         <span class="right row" style="gap:6px">
           <button class="btn small" id="draftMail">メールを作成</button>
           <button class="btn quiet small" id="openMail">宛先だけ開く</button>
@@ -332,6 +336,8 @@
         </span></div>
       <div class="hint" id="mailHint"></div>
       <div id="sheet" class="sheet" style="margin-top:12px"></div>
+      <div id="mailsheet" hidden style="margin-top:12px;background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:24px;max-width:780px"></div>
+      <div class="hint" id="mailNote" hidden>仕入先に届くメールの見た目です。これと同じ内容の注文書が、PDFでも添付されます。</div>
     </div>
   </section>
 
@@ -591,7 +597,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v32';
+  const APP_VER     = '2026-11-06 v33';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1580,6 +1586,19 @@
       </div>
       <p style="margin-top:12px;text-align:center">納品書及び送り状に発注者名を明記してください。</p>`;
     el('previewCard').hidden = false;
+    if(el('mailsheet')) showPaperView();
+  }
+  // プレビューの切り替え（紙・FAX版 ⇄ メール版）
+  function showPaperView(){
+    el('sheet').hidden = false; el('mailsheet').hidden = true; el('mailNote').hidden = true;
+    el('viewPaper').classList.remove('quiet'); el('viewMail').classList.add('quiet');
+  }
+  function showMailView(){
+    const o = sheetOrder(); if(!o) return;
+    el('mailsheet').innerHTML = orderBodyHtml(o);
+    el('sheet').hidden = true; el('mailsheet').hidden = false; el('mailNote').hidden = false;
+    el('viewMail').classList.remove('quiet'); el('viewPaper').classList.add('quiet');
+    el('previewCard').hidden = false;
   }
   function mailParts(o, again){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
@@ -2256,8 +2275,8 @@
     return `<div style="${MD.doc}">`
       + `<div style="text-align:center;letter-spacing:.4em;font-size:24px;font-weight:bold;margin:0 0 18px">注文書</div>`
       + `<table width="100%" style="border-collapse:collapse"><tr>`
-      + `<td valign="top" style="font-size:20px;font-weight:bold;padding:0">${esc(sup.full||o.supplier)}　御中</td>`
-      + `<td valign="top" align="right" style="font-size:13px;line-height:1.5;padding:0">${esc(jdate(o.date))}<br>`
+      + `<td valign="top" style="font-size:20px;font-weight:bold;padding:0;vertical-align:top">${esc(sup.full||o.supplier)}　御中</td>`
+      + `<td valign="top" align="right" style="font-size:13px;line-height:1.5;padding:0;text-align:right;vertical-align:top">${esc(jdate(o.date))}<br>`
       + `<b style="font-size:15px">株式会社ラインシステム</b><br>〒630-8453 奈良市西九条町2-5-10<br>`
       + `TEL 0742-64-7555　FAX 0742-64-7556<br>発注者 ${esc(o.staff)}</td></tr></table>`
       + `<table style="border-collapse:collapse;margin:14px 0 10px">${info}</table>`
@@ -2265,7 +2284,7 @@
       + `<p style="margin:12px 0 4px">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
       + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:'')
       + `<table width="100%" style="border-collapse:collapse;margin-top:8px"><tr>${ths}</tr>${rows}</table>`
-      + `<table width="100%" style="border-collapse:collapse;margin-top:10px"><tr><td align="right" style="padding:0">`
+      + `<table width="100%" style="border-collapse:collapse;margin-top:10px"><tr><td align="right" style="padding:0;text-align:right">`
       + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
       + `<span style="display:inline-block;border:2px solid #000;padding:6px 14px;margin-top:6px;font-weight:bold;font-size:18px">税込合計 ${yen(net+tax)}</span>`
       + (askPrice?`<br><span style="font-size:12px">※単価未定の明細が${askPrice}行あります。上記合計は確定ではありません。</span>`:'')
@@ -2295,6 +2314,8 @@
       + '</title></head><body style="margin:0;padding:28px;background:#fff">' + orderDocHtml(o) + '</body></html>';
   }
 
+  el('viewPaper').onclick = showPaperView;
+  el('viewMail').onclick = showMailView;
   el('draftMail').onclick = ()=>{
     const o = sheetOrder();
     const m = mailParts(o);
