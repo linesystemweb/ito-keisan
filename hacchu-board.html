@@ -588,7 +588,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v34';
+  const APP_VER     = '2026-11-06 v35';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1527,7 +1527,7 @@
   function showSheet(o){
     shownOrder = o;
     // 画面も紙も同じ組み方。大きさだけ画面用に少し大きくする。
-    el('sheet').innerHTML = orderDocHtml(o, 17);
+    el('sheet').innerHTML = orderDocHtml(o, 19);
     el('previewCard').hidden = false;
     if(el('mailsheet')) showPaperView();
   }
@@ -2185,7 +2185,7 @@
       td  : `border-bottom:1px solid #ccc;${pad};vertical-align:top;word-break:keep-all;overflow-wrap:break-word`,
       tdn : `border-bottom:1px solid #ccc;${pad};vertical-align:top;white-space:nowrap`,
       tdr : `border-bottom:1px solid #ccc;${pad};vertical-align:top;text-align:right;white-space:nowrap`,
-      th  : `border-bottom:2px solid #000;${pad};font-size:.92em;word-break:keep-all`
+      th  : `border-bottom:2px solid #000;${pad};font-size:.84em;letter-spacing:.04em;word-break:keep-all`
     };
   }
   function orderDocHtml(o, base){
@@ -2215,20 +2215,25 @@
         + (hasDue?`<td style="${MD.tdc}">${esc(l.due||'')}</td>`:'') + '</tr>';
     }).join('');
     const tax = Math.floor(net*0.1);
-    const info = [['注文番号',esc(o.no)+(o.revNote?'（訂正）':'')],['注文日',esc(jdate(o.date))],
-                  ['希望納期',esc(o.due||'ご連絡願います')],['納入先',esc(o.to)],['梱包',esc(o.packing||'')]]
-      .map(x=>`<tr><td style="padding:.15em 1.2em .15em 0;white-space:nowrap"><b>${x[0]}</b></td><td style="padding:.15em 0">${x[1]}</td></tr>`).join('');
+    // 並びは、もとのFAX版の注文書どおり。
+    // 左に 御中／注文番号・納期・納入先・梱包、右に 日付と自社名。
+    const left = `<div style="font-size:1.37em;font-weight:bold">${esc(sup.full||o.supplier)}　御中</div>`
+      + `<div style="margin-top:.45em">注文番号 : ${esc(o.no)}${o.revNote?'（訂正）':''}</div>`
+      + `<div>納期 : ${esc(o.due||'納期ご連絡願います。')}</div>`
+      + `<div>納入先 : ${esc(o.to)}</div>`
+      + `<div>梱包 : ${esc(o.packing||'')}</div>`;
+    const right = `${esc(jdate(o.date))}<br><b>㈱ラインシステム</b><br>`
+      + `〒630-8453 奈良市西九条町2-5-10<br>TEL : 0742-64-7555<br>FAX : 0742-64-7556`
+      + `<div style="margin-top:.3em">発注者 : ${esc(o.staff)}</div>`;
     return `<div style="${MD.doc}">`
-      + `<div style="text-align:center;letter-spacing:.4em;font-size:1.75em;font-weight:bold;margin:0 0 .8em">注文書</div>`
+      + `<div style="text-align:center;letter-spacing:.5em;font-size:1.79em;font-weight:bold;margin:0 0 .6em">注文書</div>`
       + `<table width="100%" style="border-collapse:collapse"><tr>`
-      + `<td valign="top" style="font-size:1.45em;font-weight:bold;padding:0;vertical-align:top">${esc(sup.full||o.supplier)}　御中</td>`
-      + `<td valign="top" align="right" style="font-size:.93em;line-height:1.5;padding:0;text-align:right;vertical-align:top">${esc(jdate(o.date))}<br>`
-      + `<b style="font-size:1.1em">株式会社ラインシステム</b><br>〒630-8453 奈良市西九条町2-5-10<br>`
-      + `TEL 0742-64-7555　FAX 0742-64-7556<br>発注者 ${esc(o.staff)}</td></tr></table>`
-      + `<table style="border-collapse:collapse;margin:.8em 0 .6em">${info}</table>`
-      + (o.revNote?`<p style="border:2px solid #000;padding:6px 12px;margin:10px 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
-      + `<p style="margin:.7em 0 .25em">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
-      + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:6px 0">${esc(o.note)}</p>`:'')
+      + `<td valign="top" style="padding:0;vertical-align:top">${left}</td>`
+      + `<td valign="top" align="right" style="padding:0;text-align:right;vertical-align:top;line-height:1.5;white-space:nowrap">${right}</td>`
+      + `</tr></table>`
+      + (o.revNote?`<p style="border:2px solid #000;padding:.3em .6em;margin:.5em 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
+      + `<p style="margin:.6em 0 .2em">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
+      + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:.3em 0">${esc(o.note)}</p>`:'')
       + `<table width="100%" style="border-collapse:collapse;table-layout:fixed;margin-top:.5em"><tr>${ths}</tr>${rows}</table>`
       + `<table width="100%" style="border-collapse:collapse;margin-top:.6em"><tr><td align="right" style="padding:0;text-align:right">`
       + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
