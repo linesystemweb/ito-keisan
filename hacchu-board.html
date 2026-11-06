@@ -83,9 +83,9 @@
   .sheet thead th{border-bottom:2px solid #111;padding-bottom:8px}
   .sheet tbody tr:last-child td{border-bottom:2px solid #111}
   .sheet .co{font-size:20px}
-  .sheet th{font-size:16px;white-space:nowrap;letter-spacing:.04em}
-  .sheet td{white-space:nowrap}
-  .sheet td:nth-child(2),.sheet td:nth-child(3){white-space:normal;word-break:keep-all;overflow-wrap:break-word}
+  .sheet th{font-size:16px;letter-spacing:.04em}
+  .sheet td{white-space:normal;word-break:keep-all;overflow-wrap:break-word}
+  .sheet th{word-break:keep-all;overflow-wrap:break-word}
   .sheet td:nth-child(2){font-size:.88em}
   @media (max-width:700px){ .sheet{font-size:17px} .sheet h4{font-size:26px} .sheet table{font-size:15px} }
   .sheet .co{text-align:right;line-height:1.5}
@@ -591,7 +591,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-05 v31';
+  const APP_VER     = '2026-11-06 v32';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1519,9 +1519,9 @@
   }
   // 明細表の列幅。荷姿・納期の有無で変わるので、割合を足して100%にならす。
   function sheetCols(hasPack, hasDue){
-    const w = [['No',4],['code',19],['name',27],['spec',12]];
+    const w = [['No',4],['code',17],['name',25],['spec',14]];
     if(hasPack) w.push(['pack',9]);
-    w.push(['qty',10],['unit',6],['price',9],['amt',13]);
+    w.push(['qty',9],['unit',7],['price',10],['amt',14]);
     if(hasDue) w.push(['due',11]);
     const sum = w.reduce((a,x)=>a+x[1],0);
     return '<colgroup>' + w.map(x=>`<col style="width:${(x[1]*100/sum).toFixed(2)}%">`).join('') + '</colgroup>';
@@ -2133,9 +2133,8 @@
     .sheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
     .sheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px;table-layout:fixed}
     .sheet th,.sheet td{border-bottom:1px solid #000;padding:6px 8px}
-    .sheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
-    .sheet td{white-space:nowrap}
-    .sheet td:nth-child(2),.sheet td:nth-child(3){white-space:normal;word-break:keep-all;overflow-wrap:break-word}
+    .sheet th{font-size:9pt;border-bottom:2px solid #000}
+    .sheet td{white-space:normal;word-break:keep-all;overflow-wrap:break-word}
     .sheet td:nth-child(2){font-size:.88em}
     .sheet .co{text-align:right;line-height:1.5;font-size:11pt}
   `;
@@ -2147,9 +2146,8 @@
     #faxsheet h4{text-align:center;letter-spacing:.5em;font-size:20pt;margin:0 0 14px}
     #faxsheet table{width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px;table-layout:fixed}
     #faxsheet th,#faxsheet td{border-bottom:1px solid #000;padding:6px 8px}
-    #faxsheet th{font-size:9pt;white-space:nowrap;border-bottom:2px solid #000}
-    #faxsheet td{white-space:nowrap}
-    #faxsheet td:nth-child(2),#faxsheet td:nth-child(3){white-space:normal;word-break:keep-all;overflow-wrap:break-word}
+    #faxsheet th{font-size:9pt;border-bottom:2px solid #000}
+    #faxsheet td{white-space:normal;word-break:keep-all;overflow-wrap:break-word}
     #faxsheet td:nth-child(2){font-size:.88em}
     #faxsheet .co{text-align:right;line-height:1.5;font-size:11pt}
   `;
@@ -2221,9 +2219,10 @@
   const MD = {
     doc : 'font-family:\'Yu Gothic\',\'Hiragino Kaku Gothic ProN\',sans-serif;color:#000;font-size:14px;line-height:1.6',
     td  : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top',
-    tdc : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;white-space:nowrap',
+    tdc : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;word-break:keep-all;overflow-wrap:break-word',
+    tdn : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;white-space:nowrap',
     tdr : 'border-bottom:1px solid #ccc;padding:7px 9px;vertical-align:top;text-align:right;white-space:nowrap',
-    th  : 'border-bottom:2px solid #000;padding:7px 9px;white-space:nowrap;font-size:13px'
+    th  : 'border-bottom:2px solid #000;padding:7px 9px;font-size:13px;word-break:keep-all'
   };
   function orderDocHtml(o){
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
@@ -2242,10 +2241,10 @@
       if(amt!=null && l.cur!=='USD') net += amt;
       if(p==null) askPrice++;
       const spec = [l.size,l.color,l.form].filter(Boolean).join('　');
-      return `<tr><td style="${MD.tdc}">${l.no}</td><td style="${MD.td}">${esc(l.code||'')}</td>`
+      return `<tr><td style="${MD.tdn}">${l.no}</td><td style="${MD.td}">${esc(l.code||'')}</td>`
         + `<td style="${MD.td}">${esc(l.name)}</td><td style="${MD.tdc}">${esc(spec)}</td>`
         + (hasPack?`<td style="${MD.tdc}">${esc(l.pack||'')}</td>`:'')
-        + `<td style="${MD.tdr}">${numf(l.qty)}</td><td style="${MD.tdc}">${esc(l.unit||'')}</td>`
+        + `<td style="${MD.tdr}">${numf(l.qty)}</td><td style="${MD.tdn}">${esc(l.unit||'')}</td>`
         + `<td style="${MD.tdr}">${p==null?'ご提示ください':(l.cur==='USD'?'US$':'¥')+numf(p)}</td>`
         + `<td style="${MD.tdr}">${amt==null?'—':(l.cur==='USD'?'US$':'¥')+numf(Math.round(amt))}</td>`
         + (hasDue?`<td style="${MD.tdc}">${esc(l.due||'')}</td>`:'') + '</tr>';
