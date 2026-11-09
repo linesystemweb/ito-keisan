@@ -52,6 +52,7 @@
   .qty button { width: 56px; font-size: 22px; font-weight: 700; }
   .qty input { text-align: center; font-size: 22px; font-weight: 700; }
   .reasons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .reasons .span2 { grid-column: span 2; }
   .reasons button[aria-pressed=true] { background: var(--accent-soft); border: 2px solid var(--accent); font-weight: 700; }
   .msg { border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-weight: 600; }
   .msg.ok { background: var(--good-soft); color: var(--good); }
@@ -120,6 +121,7 @@
       <button type="button" aria-pressed="false">社内使用</button>
       <button type="button" aria-pressed="false">破損・不良</button>
       <button type="button" aria-pressed="false">展示会・イベント</button>
+      <button type="button" aria-pressed="false" class="span2">オンラインショップ</button>
     </div>
   </section>
 
