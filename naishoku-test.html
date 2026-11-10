@@ -803,7 +803,17 @@ function reopenLine(code){
   drawDelivery(); renderJuryo(); drawSlipList();
   toast("「"+c.name+"」を未完了に戻しました。");
 }
+/* 「うち在庫に上げる」は、ふだん今回納入と同じ。
+   手で直したときだけ、その数を覚えておく（輸出やOEMが混ざる納入のため）。 */
+const SQ_EDITED={};
+function onDq(i){
+  const dq=document.getElementById("dq"+i), sq=document.getElementById("sq"+i);
+  if(sq && !SQ_EDITED[i]) sq.value=dq.value;
+  renderJuryo();
+}
+function onSq(i){ SQ_EDITED[i]=true; renderJuryo(); }
 function drawDelivery(){
+  for(const k in SQ_EDITED) delete SQ_EDITED[k];
   if(!S.cart.length){
     document.getElementById("deliv").innerHTML=
       '<div class="empty">上の「保存済みの伝票から呼び出す」から、<br>納入を登録したい伝票を選んでください。</div>';
@@ -828,8 +838,13 @@ function drawDelivery(){
       ${closed?"":`
       <div class="inrow">
         <label for="dq${i}">今回納入</label>
-        <input type="number" id="dq${i}" min="0" step="1" value="${rest}" oninput="renderJuryo()" onchange="renderJuryo()">
+        <input type="number" id="dq${i}" min="0" step="1" value="${rest}" oninput="onDq(${i})" onchange="onDq(${i})">
         <span class="amt" id="da${i}">${yen(rest*c.price)}</span>
+      </div>
+      <div class="inrow">
+        <label for="sq${i}">うち在庫に上げる</label>
+        <input type="number" id="sq${i}" min="0" step="1" value="${rest}" oninput="onSq(${i})" onchange="onSq(${i})">
+        <span class="note" style="font-size:11px">海外向けが混ざるときだけ直す</span>
       </div>
       <div class="over" id="dov${i}" hidden></div>
       <label class="cut" id="dcw${i}" hidden>
@@ -843,7 +858,10 @@ function delivRows(){
   return S.cart.map((c,i)=>{
     if(S.closed[c.code]) return null;
     const el=document.getElementById("dq"+i), cb=document.getElementById("dc"+i);
-    return {...c, idx:i, qty:el?Math.max(0,Number(el.value)||0):0, cut:!!(cb&&cb.checked)};
+    const sq=document.getElementById("sq"+i);
+    const q=el?Math.max(0,Number(el.value)||0):0;
+    const st=sq?Math.max(0,Number(sq.value)||0):q;
+    return {...c, idx:i, qty:q, stock:Math.min(st,q), cut:!!(cb&&cb.checked)};
   }).filter(Boolean);
 }
 
@@ -978,7 +996,8 @@ function commitDelivery(){
   delivRows().forEach(r=>{
     if(r.qty>0){
       S.delivered[r.code]=(S.delivered[r.code]||0)+r.qty;
-      S.deliveries.push({date:day,code:r.code,qty:r.qty,price:r.price,amount:r.qty*r.price});
+      S.deliveries.push({date:day,code:r.code,qty:r.qty,price:r.price,amount:r.qty*r.price,
+                         stock:(r.stock===undefined?r.qty:r.stock)});   // POSの在庫に上げる数
     }
     const done=S.delivered[r.code]||0;
     if(r.cut){ S.closed[r.code]=true; cut++; }
@@ -1244,7 +1263,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-11-04 20:10";
+const APP_VER="2026-11-10 11:30";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
