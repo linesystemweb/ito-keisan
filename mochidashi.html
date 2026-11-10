@@ -195,7 +195,12 @@ function setSync(t) {
 function setItems(list, updated) {
   items = list || [];
   byJan = new Map();
-  items.forEach(it => { if (it[1]) byJan.set(String(it[1]).replace(/\D/g, ''), it); });
+  items.forEach(it => {
+    if (!it[1]) return;
+    const k = String(it[1]).replace(/\D/g, '');
+    if (!byJan.has(k)) byJan.set(k, []);
+    byJan.get(k).push(it);
+  });
   $('itemsInfo').textContent = '商品一覧：' + items.length + '件' + (updated ? '（' + updated + ' 更新）' : '');
 }
 async function loadItems(force) {
@@ -234,10 +239,15 @@ function renderResults() {
     ul.appendChild(li);
     return;
   }
+  showChoices(hits);
+}
+function showChoices(hits) {
+  const ul = $('results');
+  ul.innerHTML = '';
   hits.forEach(it => {
     const li = document.createElement('li');
-    const n = document.createElement('div'); n.textContent = it[2];
-    const c = document.createElement('div'); c.className = 'code'; c.textContent = it[0] + (it[1] ? '　JAN ' + it[1] : '');
+    const n = document.createElement('div'); n.textContent = it[0] + '　' + it[2];
+    const c = document.createElement('div'); c.className = 'code'; c.textContent = it[1] ? 'JAN ' + it[1] : '';
     li.append(n, c);
     li.addEventListener('click', () => pick(it));
     ul.appendChild(li);
@@ -286,11 +296,16 @@ async function startScan() {
         const jan = String(text).replace(/\D/g, '');
         if (jan === last) return;
         last = jan;
-        const it = byJan.get(jan);
-        if (it) {
+        const hits = byJan.get(jan) || [];
+        if (hits.length === 1) {
           if (navigator.vibrate) navigator.vibrate(80);
-          pick(it);
-          showMsg('読み取りました：' + it[2], 'ok');
+          pick(hits[0]);
+          showMsg('読み取りました：' + hits[0][2], 'ok');
+        } else if (hits.length > 1) {
+          if (navigator.vibrate) navigator.vibrate(80);
+          stopScan();
+          showChoices(hits);
+          showMsg('同じバーコードの商品が' + hits.length + 'つあります。品番を確かめて選んでください', 'err');
         } else {
           showMsg('このバーコードは商品一覧にありません：' + text + '（品名で検索してください）', 'err');
         }
