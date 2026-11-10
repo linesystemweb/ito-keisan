@@ -803,12 +803,22 @@ function reopenLine(code){
   drawDelivery(); renderJuryo(); drawSlipList();
   toast("「"+c.name+"」を未完了に戻しました。");
 }
-/* 「うち在庫に上げる」は、ふだん今回納入と同じ。
+/* 「うち在庫に上げる」は、POSの在庫に足す数。
+   仕上げ・完成品は納入数と同じ、それ以外（巻き・本体付け・調整金額など）は0を初期値にする。
    手で直したときだけ、その数を覚えておく（輸出やOEMが混ざる納入のため）。 */
+function stockDefault(code,name){
+  const n=String(name||"").replace(/[\r\n]+/g," ");
+  if(/巻き|巻替え|本体付け/.test(n)) return {on:false, why:"巻き・本体付けなどの途中の工程"};
+  if(/仕上げ|完成品/.test(n))        return {on:true,  why:""};
+  const c=String(code||"").toUpperCase();
+  if(/-[BC]$/.test(c))               return {on:true,  why:""};
+  return {on:false, why:"仕上げ・完成品ではない品目"};
+}
 const SQ_EDITED={};
 function onDq(i){
   const dq=document.getElementById("dq"+i), sq=document.getElementById("sq"+i);
-  if(sq && !SQ_EDITED[i]) sq.value=dq.value;
+  const c=S.cart[i];
+  if(sq && !SQ_EDITED[i]) sq.value = stockDefault(c&&c.code, c&&c.name).on ? dq.value : 0;
   renderJuryo();
 }
 function onSq(i){ SQ_EDITED[i]=true; renderJuryo(); }
@@ -821,6 +831,7 @@ function drawDelivery(){
   }
   document.getElementById("deliv").innerHTML=S.cart.map((c,i)=>{
     const done=S.delivered[c.code]||0, rest=restOf(i), closed=!!S.closed[c.code];
+    const sd=stockDefault(c.code,c.name);                  // 在庫に上げる初期値
     const shortfall=closed&&done<c.qty ? c.qty-done : 0;   // 打ち切りで取れなかった分
     const surplus  =closed&&done>c.qty ? done-c.qty : 0;   // 委託より多く作れた分
     return `<div class="drow ${closed?"done":""}">
@@ -843,8 +854,9 @@ function drawDelivery(){
       </div>
       <div class="inrow">
         <label for="sq${i}">うち在庫に上げる</label>
-        <input type="number" id="sq${i}" min="0" step="1" value="${rest}" oninput="onSq(${i})" onchange="onSq(${i})">
-        <span class="note" style="font-size:11px">海外向けが混ざるときだけ直す</span>
+        <input type="number" id="sq${i}" min="0" step="1" value="${sd.on?rest:0}" oninput="onSq(${i})" onchange="onSq(${i})">
+        <span class="note" style="font-size:11px">${sd.on?"海外向けが混ざるときだけ直す"
+          :esc(sd.why)+"なので0にしています。上げるときは数を入れてください"}</span>
       </div>
       <div class="over" id="dov${i}" hidden></div>
       <label class="cut" id="dcw${i}" hidden>
@@ -1263,7 +1275,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-11-10 11:30";
+const APP_VER="2026-11-10 22:40";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
