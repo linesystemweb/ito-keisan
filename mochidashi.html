@@ -45,9 +45,18 @@
   .results li { padding: 10px 6px; border-top: 1px solid var(--line); cursor: pointer; }
   .results li:first-child { border-top: 0; }
   .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: var(--sub); }
-  .picked { background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
-  .picked .name { font-weight: 700; word-break: break-all; }
-  .picked button { margin-left: auto; min-height: 40px; padding: 6px 12px; flex-shrink: 0; }
+  .cart { list-style: none; margin: 0; padding: 0; }
+  .cart li { border-top: 1px solid var(--line); padding: 10px 0; }
+  .cart li:first-child { border-top: 0; padding-top: 0; }
+  .cart .nm { font-weight: 600; word-break: break-all; }
+  .cart .ctl { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .cart .ctl button { width: 44px; min-height: 40px; padding: 0; font-size: 20px; font-weight: 700; }
+  .cart .ctl input { width: 72px; text-align: center; font-size: 18px; font-weight: 700; padding: 8px 4px; }
+  .cart .ctl .del { margin-left: auto; width: auto; padding: 0 12px; font-size: 14px; font-weight: 600; color: var(--bad); }
+  .cart li.flash { animation: flash 1s ease-out; }
+  @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+  .sum { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 14px; color: var(--sub); }
+  .sum button { min-height: 34px; padding: 4px 10px; font-size: 13px; }
   .qty { display: flex; gap: 8px; align-items: center; }
   .qty button { width: 56px; font-size: 22px; font-weight: 700; }
   .qty input { text-align: center; font-size: 22px; font-weight: 700; }
@@ -88,7 +97,7 @@
   </section>
 
   <section class="card">
-    <span class="label">1. 商品</span>
+    <span class="label">1. 商品を入れる</span>
     <div id="pickArea">
       <button id="scanBtn" class="scan primary" type="button">📷 バーコードを読む</button>
       <div id="reader" class="hidden"></div>
@@ -96,22 +105,14 @@
       <input id="search" type="search" placeholder="品名コード・品名・JANで検索" autocomplete="off">
       <ul id="results" class="results"></ul>
     </div>
-    <div id="picked" class="picked hidden">
-      <div>
-        <div class="name" id="pickedName"></div>
-        <div class="code" id="pickedCode"></div>
-      </div>
-      <button id="unpick" type="button">変更</button>
-    </div>
+    <div class="meta" style="font-size:13px;color:var(--sub);margin-top:8px">読んだ商品は下のカゴに入ります。同じ商品をもう一度読むと1つ増えます。</div>
   </section>
 
   <section class="card">
-    <span class="label">2. 数量</span>
-    <div class="qty">
-      <button id="minus" type="button" aria-label="1つ減らす">−</button>
-      <input id="qty" type="number" inputmode="numeric" min="1" max="100" value="1" aria-label="数量">
-      <button id="plus" type="button" aria-label="1つ増やす">＋</button>
-    </div>
+    <span class="label">2. カゴ（数量を確かめる）</span>
+    <ul id="cart" class="cart"></ul>
+    <div id="cartEmpty" style="color:var(--sub);font-size:14px">まだ入っていません。バーコードを読むか、検索して選んでください。</div>
+    <div id="sum" class="sum hidden"><span id="sumText"></span><button id="clearCart" type="button">カゴを空にする</button></div>
   </section>
 
   <section class="card">
@@ -132,7 +133,7 @@
     </div>
   </section>
 
-  <button id="send" class="primary wide" type="button" disabled style="font-size:18px;min-height:54px;margin-bottom:12px">登録する</button>
+  <button id="send" class="primary wide" type="button" disabled style="font-size:18px;min-height:54px;margin-bottom:12px">まとめて登録する</button>
 
   <section class="card">
     <span class="label">自分の最近の登録</span>
@@ -152,11 +153,12 @@
 const API = 'https://script.google.com/macros/s/AKfycbxuvD7IU084MpKMTFr5X1MSkcm9ctc341wR8E-8oUJy_YKfjNFfufymVV059cZScbsl/exec';
 const TOKEN = 'uPFkvADv6Ft3wAI5l8QVCoPs';
 const MAX_QTY = 100;
+const MAX_ITEMS = 50;
 
 /* ===== 状態 ===== */
 let items = [];          // [code, jan, name]
 let byJan = new Map();
-let picked = null;
+let cart = [];           // [{code, jan, name, qty, cid}]
 let reason = '';
 const OTHER = 'その他';
 const detailText = () => $('detail').value.replace(/\s+/g, ' ').trim();
@@ -176,13 +178,13 @@ function newId() {
 }
 const norm = s => String(s || '').normalize('NFKC').toUpperCase().replace(/\s+/g, '');
 
-function showMsg(text, kind) {
+function showMsg(text, kind, stay) {
   const m = $('msg');
   m.textContent = text;
   m.className = 'msg ' + (kind || 'info');
   clearTimeout(showMsg.t);
   if (kind === 'ok') showMsg.t = setTimeout(() => m.classList.add('hidden'), 4000);
-  if (kind !== 'info') window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (kind !== 'info' && !stay) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function api(body) {
@@ -262,21 +264,57 @@ function showChoices(hits) {
     ul.appendChild(li);
   });
 }
+/* ===== カゴ ===== */
+function saveCart() { store.set('cart', JSON.stringify(cart)); }
+function loadCart() {
+  try { const c = JSON.parse(store.get('cart') || '[]'); if (Array.isArray(c)) cart = c.filter(x => x && x.code && x.cid); } catch (e) { cart = []; }
+}
 function pick(it) {
-  picked = it;
-  $('pickedName').textContent = it[2];
-  $('pickedCode').textContent = it[0] + (it[1] ? '　JAN ' + it[1] : '');
-  $('picked').classList.remove('hidden');
-  $('pickArea').classList.add('hidden');
+  let x = cart.find(c => c.code === it[0]);
+  if (x) x.qty = Math.min(MAX_QTY, x.qty + 1);
+  else {
+    if (cart.length >= MAX_ITEMS) { showMsg('一度に登録できるのは' + MAX_ITEMS + '種類までです。いったん登録してください', 'err'); return; }
+    x = { code: it[0], jan: it[1] || '', name: it[2], qty: 1, cid: newId() };
+    cart.unshift(x);
+  }
   $('search').value = '';
   $('results').innerHTML = '';
-  stopScan();
-  updateSend();
+  saveCart(); renderCart(x.code);
+  showMsg('カゴに入れました：' + x.name + '（' + x.qty + '個）', 'ok', true);
 }
-function unpick() {
-  picked = null;
-  $('picked').classList.add('hidden');
-  $('pickArea').classList.remove('hidden');
+function setItemQty(code, n) {
+  const x = cart.find(c => c.code === code); if (!x) return;
+  n = Math.round(Number(n));
+  x.qty = Math.max(1, Math.min(MAX_QTY, Number.isFinite(n) ? n : 1));
+  saveCart(); renderCart();
+}
+function removeItem(code) { cart = cart.filter(c => c.code !== code); saveCart(); renderCart(); }
+function renderCart(flash) {
+  const ul = $('cart');
+  ul.innerHTML = '';
+  cart.forEach(x => {
+    const li = document.createElement('li');
+    if (x.code === flash) li.className = 'flash';
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = x.name;
+    const cd = document.createElement('div'); cd.className = 'code'; cd.textContent = x.code + (x.jan ? '　JAN ' + x.jan : '');
+    const ctl = document.createElement('div'); ctl.className = 'ctl';
+    const mi = document.createElement('button'); mi.type = 'button'; mi.textContent = '−'; mi.setAttribute('aria-label', x.name + ' を1つ減らす');
+    const q = document.createElement('input'); q.type = 'number'; q.inputMode = 'numeric'; q.min = 1; q.max = MAX_QTY; q.value = x.qty; q.setAttribute('aria-label', x.name + ' の数量');
+    const pl = document.createElement('button'); pl.type = 'button'; pl.textContent = '＋'; pl.setAttribute('aria-label', x.name + ' を1つ増やす');
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'del'; del.textContent = '削除';
+    mi.addEventListener('click', () => setItemQty(x.code, x.qty - 1));
+    pl.addEventListener('click', () => setItemQty(x.code, x.qty + 1));
+    q.addEventListener('change', () => setItemQty(x.code, q.value));
+    del.addEventListener('click', () => removeItem(x.code));
+    ctl.append(mi, q, pl, del);
+    li.append(nm, cd, ctl);
+    ul.appendChild(li);
+  });
+  const total = cart.reduce((a, x) => a + x.qty, 0);
+  $('cartEmpty').classList.toggle('hidden', cart.length > 0);
+  $('sum').classList.toggle('hidden', cart.length === 0);
+  $('sumText').textContent = cart.length + '種類・合計 ' + total + '個';
+  $('send').textContent = cart.length ? 'まとめて登録する（' + cart.length + '種類・' + total + '個）' : 'まとめて登録する';
   updateSend();
 }
 
@@ -299,17 +337,16 @@ async function startScan() {
     $('scanBtn').classList.add('hidden');
     const F = window.Html5QrcodeSupportedFormats;
     scanner = new Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.CODE_128, F.UPC_A], verbose: false });
-    let last = '';
+    let last = '', lastAt = 0;
     await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.min(w * 0.9, 320), height: 120 }) },
       text => {
         const jan = String(text).replace(/\D/g, '');
-        if (jan === last) return;
-        last = jan;
+        if (jan === last && Date.now() - lastAt < 2500) return;   // 同じバーコードの読み続けを防ぐ
+        last = jan; lastAt = Date.now();
         const hits = byJan.get(jan) || [];
         if (hits.length === 1) {
           if (navigator.vibrate) navigator.vibrate(80);
           pick(hits[0]);
-          showMsg('読み取りました：' + hits[0][2], 'ok');
         } else if (hits.length > 1) {
           if (navigator.vibrate) navigator.vibrate(80);
           stopScan();
@@ -333,42 +370,39 @@ async function stopScan() {
   $('scanBtn').classList.remove('hidden');
 }
 
-/* ===== 数量・理由 ===== */
-function getQty() { return Number($('qty').value); }
-function setQty(n) { $('qty').value = Math.max(1, Math.min(MAX_QTY, n || 1)); updateSend(); }
+/* ===== 理由・送信ボタン ===== */
 function updateSend() {
-  const q = getQty();
-  $('send').disabled = sending || !picked || !reason || (reason === OTHER && !detailText()) || !$('name').value.trim() || !Number.isInteger(q) || q < 1 || q > MAX_QTY;
+  $('send').disabled = sending || !cart.length || !reason || (reason === OTHER && !detailText()) || !$('name').value.trim();
 }
 
 /* ===== 登録 ===== */
 async function send() {
   const name = $('name').value.trim();
-  const q = getQty();
   if (!name) { showMsg('名前を入力してください', 'err'); return; }
-  if (!picked || !reason) return;
+  if (!cart.length || !reason) return;
   if (reason === OTHER && !detailText()) { showMsg('「その他」の内容を入力してください', 'err'); return; }
   const label = reasonLabel();
-  if (!confirm(picked[2] + '\n' + q + '個（' + label + '）を登録しますか？')) return;
+  const total = cart.reduce((a, x) => a + x.qty, 0);
+  const lines = cart.slice(0, 12).map(x => '・' + x.name + '　' + x.qty + '個');
+  if (cart.length > 12) lines.push('・ほか ' + (cart.length - 12) + '種類');
+  if (!confirm('理由：' + label + '\n' + cart.length + '種類・合計 ' + total + '個を登録しますか？\n\n' + lines.join('\n'))) return;
   sending = true; updateSend();
   $('send').textContent = '送信中…';
   try {
-    await api({ action: 'submit', name, reason, detail: reason === OTHER ? detailText() : '', code: picked[0], qty: q, clientId });
-    showMsg('登録しました：' + picked[2] + ' ' + q + '個（' + label + '）', 'ok');
-    clientId = newId();
-    unpick();
-    setQty(1);
+    await api({ action: 'submitMany', name, reason, detail: reason === OTHER ? detailText() : '',
+                items: cart.map(x => ({ code: x.code, qty: x.qty, clientId: x.cid })) });
+    showMsg('登録しました：' + cart.length + '種類・合計 ' + total + '個（' + label + '）', 'ok');
+    cart = []; saveCart();
     reason = '';
     $('detail').value = '';
     $('detailBox').classList.add('hidden');
     document.querySelectorAll('#reasons button').forEach(b => b.setAttribute('aria-pressed', 'false'));
     loadHist();
   } catch (e) {
-    showMsg('登録できませんでした：' + e.message + '（もう一度「登録する」を押してください）', 'err');
+    showMsg('登録できませんでした：' + e.message + '（カゴはそのままです。もう一度「まとめて登録する」を押してください）', 'err');
   } finally {
     sending = false;
-    $('send').textContent = '登録する';
-    updateSend();
+    renderCart();
   }
 }
 
@@ -419,11 +453,7 @@ $('name').addEventListener('change', () => { store.set('name', $('name').value.t
 $('search').addEventListener('input', renderResults);
 $('scanBtn').addEventListener('click', startScan);
 $('stopScan').addEventListener('click', stopScan);
-$('unpick').addEventListener('click', unpick);
-$('minus').addEventListener('click', () => setQty(getQty() - 1));
-$('plus').addEventListener('click', () => setQty(getQty() + 1));
-$('qty').addEventListener('input', updateSend);
-$('qty').addEventListener('blur', () => setQty(Math.round(getQty())));
+$('clearCart').addEventListener('click', () => { if (confirm('カゴを空にしますか？')) { cart = []; saveCart(); renderCart(); } });
 document.querySelectorAll('#reasons button').forEach(b => b.addEventListener('click', () => {
   reason = b.textContent;
   document.querySelectorAll('#reasons button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
@@ -438,9 +468,10 @@ setInterval(() => { if (document.visibilityState === 'visible') loadHist(); }, 3
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadHist(); });
 
 if (!/^https:\/\//.test(API)) showMsg('このページの設定（GASのURL）がまだです。管理者に連絡してください。', 'err');
+loadCart();
+renderCart();
 loadItems(false);
 loadHist();
-updateSend();
 </script>
 </body>
 </html>
