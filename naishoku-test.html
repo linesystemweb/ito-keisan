@@ -852,12 +852,11 @@ function drawDelivery(){
         <input type="number" id="dq${i}" min="0" step="1" value="${rest}" oninput="onDq(${i})" onchange="onDq(${i})">
         <span class="amt" id="da${i}">${yen(rest*c.price)}</span>
       </div>
-      <div class="inrow">
+      ${sd.on?`<div class="inrow">
         <label for="sq${i}">うち在庫に上げる</label>
-        <input type="number" id="sq${i}" min="0" step="1" value="${sd.on?rest:0}" oninput="onSq(${i})" onchange="onSq(${i})">
-        <span class="note" style="font-size:11px">${sd.on?"海外向けが混ざるときだけ直す"
-          :esc(sd.why)+"なので0にしています。上げるときは数を入れてください"}</span>
-      </div>
+        <input type="number" id="sq${i}" min="0" step="1" value="${rest}" oninput="onSq(${i})" onchange="onSq(${i})">
+        <span class="note" style="font-size:11px">海外向けが混ざるときだけ直す</span>
+      </div>`:""}
       <div class="over" id="dov${i}" hidden></div>
       <label class="cut" id="dcw${i}" hidden>
         <input type="checkbox" id="dc${i}" onchange="renderJuryo()">
@@ -872,7 +871,8 @@ function delivRows(){
     const el=document.getElementById("dq"+i), cb=document.getElementById("dc"+i);
     const sq=document.getElementById("sq"+i);
     const q=el?Math.max(0,Number(el.value)||0):0;
-    const st=sq?Math.max(0,Number(sq.value)||0):q;
+    // 在庫に上げない品目（巻き・調整金額など）は欄を出していないので 0。
+    const st=sq?Math.max(0,Number(sq.value)||0):(stockDefault(c.code,c.name).on?q:0);
     return {...c, idx:i, qty:q, stock:Math.min(st,q), cut:!!(cb&&cb.checked)};
   }).filter(Boolean);
 }
@@ -1275,7 +1275,7 @@ async function graph(path,opt={}){
 }
 
 /* ---------- フォルダ選択 ---------- */
-const APP_VER="2026-11-10 22:40";
+const APP_VER="2026-11-10 23:40";
 const PICK={driveId:null,itemId:null,trail:[],q:"",last:null};
 function odPickerOpen(){ document.getElementById("odPicker").hidden=false; odBrowseRoot(); }
 function odPickerClose(){ document.getElementById("odPicker").hidden=true; }
