@@ -192,7 +192,7 @@
         <li><strong>FAX送信用PDFを保存</strong>…PDFが保存されます。FAXの仕入先はこちらです。</li>
       </ul>
       <h3>4. 届いたら消し込む</h3>
-      <p>「入荷消し込み」に未入荷の明細が並びます。届いた数量と入荷日を入れて「登録」。分けて届く（分納）ときは、届いたぶんだけ何回でも登録できます。残りが来ないと分かったら「打切り」。</p>
+      <p>「入荷消し込み」に未入荷の明細が並びます。荷物が届いたら、上の「仕入先」「発注No」でしぼり込み、入荷日を出荷案内書の日付にして、届いた行にチェック→「チェックした行をまとめて入荷にする」。数量ははじめから残りの数が入っているので、違うときだけ直します。1行ずつ「登録」してもかまいません。分けて届く（分納）ときは、届いたぶんだけ何回でも登録できます。残りが来ないと分かったら「打切り」。登録した分はその下に一覧で出るので、紙の出荷案内書と突き合わせられます。</p>
       <h3>5. 見直す</h3>
       <p>「発注一覧」で過去の注文を検索でき、「開く」から注文書を出し直せます。副発注No.と社内メモは後から直せます。「集計・支払予定」では、入荷した月の翌月払いで支払予定が出ます。</p>
     </div>
@@ -402,13 +402,34 @@
         <h2 style="margin:0">未入荷の明細</h2>
         <label class="row tiny" style="gap:5px;margin-left:auto"><input type="checkbox" id="lateOnly" style="width:auto"> 納期を過ぎたものだけ</label>
       </div>
+      <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+        <select id="r-sup" style="width:190px"><option value="">仕入先（すべて）</option></select>
+        <select id="r-no" style="width:190px"><option value="">発注No（すべて）</option></select>
+        <input id="r-q" style="width:180px" placeholder="品名・品番でしぼる">
+        <label class="row tiny" style="gap:5px">入荷日 <input type="date" id="r-day" style="width:150px"></label>
+      </div>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">発注</th><th class="num">入荷済</th><th class="num">残</th><th>納期</th><th>入荷入力</th></tr></thead>
+          <thead><tr><th style="width:44px">選ぶ</th><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">発注</th><th class="num">入荷済</th><th class="num">残</th><th>納期</th><th>入荷入力</th></tr></thead>
           <tbody id="recvBody"></tbody>
         </table>
       </div>
-      <div class="hint">実際に届いた数をそのまま入れてください。多くても少なくても登録できます。残りが来ない場合は「打切り」で閉じます。</div>
+      <div class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap">
+        <label class="row tiny" style="gap:5px"><input type="checkbox" id="r-all" style="width:auto"> 表示中をぜんぶ選ぶ</label>
+        <button class="btn" id="r-bulk">チェックした行をまとめて入荷にする</button>
+        <span id="r-msg" class="tiny muted"></span>
+      </div>
+      <div class="hint">出荷案内書を見ながら、届いた行にチェックを入れて「まとめて入荷にする」を押してください。数量ははじめから残りの数が入っていますので、違うときだけ直します。1行ずつの「登録」もこれまでどおり使えます。残りが来ない場合は「打切り」で閉じます。</div>
+    </div>
+    <div class="card" id="r-todayCard" hidden>
+      <div class="row"><h2 style="margin:0" id="r-todayTitle">この日に登録した入荷</h2></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">入荷</th><th>登録者</th></tr></thead>
+          <tbody id="r-today"></tbody>
+        </table>
+      </div>
+      <div class="hint">紙の出荷案内書と突き合わせてご確認ください。</div>
     </div>
   </section>
 
@@ -602,7 +623,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v41';
+  const APP_VER     = '2026-11-11 v42';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -1728,27 +1749,126 @@
   }
 
   // ---------- receiving ----------
-  function renderRecv(){
+  // しぼり込みを通した未入荷の行
+  function recvFiltered(){
     const late = el('lateOnly').checked;
+    const sup  = el('r-sup') ? el('r-sup').value : '';
+    const ono  = el('r-no')  ? el('r-no').value  : '';
+    const q    = ((el('r-q') && el('r-q').value) || '').trim().toLowerCase();
     const rows = [];
     orders.forEach(o => isLive(o) && o.lines.forEach(l => {
       const r = remaining(l);
       if(l.closed || r.rest<=0) return;
       if(late && !(l.due && l.due < today())) return;
+      if(sup && o.supplier !== sup) return;
+      if(ono && o.no !== ono) return;
+      if(q && !((l.code||'')+' '+(l.name||'')+' '+(l.size||'')+' '+(l.color||'')+' '+(l.form||''))
+                .toLowerCase().includes(q)) return;
       rows.push({o,l,r});
     }));
+    return rows;
+  }
+  // 仕入先・発注Noの選択肢は、未入荷が残っているものだけ出す
+  function recvFillPickers(){
+    const supSel = el('r-sup'), noSel = el('r-no');
+    if(!supSel || !noSel) return;
+    const late = el('lateOnly').checked;
+    const open = [];
+    orders.forEach(o => isLive(o) && o.lines.forEach(l => {
+      const r = remaining(l);
+      if(l.closed || r.rest<=0) return;
+      if(late && !(l.due && l.due < today())) return;
+      open.push(o);
+    }));
+    const sups = [...new Set(open.map(o=>o.supplier))].sort();
+    const keepS = supSel.value;
+    supSel.innerHTML = '<option value="">仕入先（すべて）</option>'
+      + sups.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    supSel.value = sups.indexOf(keepS) >= 0 ? keepS : '';
+    const nos = [...new Set(open.filter(o => !supSel.value || o.supplier === supSel.value).map(o=>o.no))].sort();
+    const keepN = noSel.value;
+    noSel.innerHTML = '<option value="">発注No（すべて）</option>'
+      + nos.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    noSel.value = nos.indexOf(keepN) >= 0 ? keepN : '';
+  }
+  // その日に登録した入荷（紙の出荷案内書と突き合わせる用）
+  function renderRecvDay(day){
+    const card = el('r-todayCard'); if(!card) return;
+    const list = [];
+    orders.forEach(o => isLive(o) && o.lines.forEach(l =>
+      (l.recv||[]).forEach(rc => { if(rc.d === day) list.push({o,l,rc}); })));
+    if(!list.length){ card.hidden = true; return; }
+    card.hidden = false;
+    el('r-todayTitle').textContent = jdate(day) + ' に登録した入荷（' + list.length + '行）';
+    el('r-today').innerHTML = list.map(({o,l,rc})=>`
+      <tr><td>${esc(o.no)}</td><td>${esc(o.supplier)}</td>
+      <td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
+      <td class="num">${numf(rc.q)}${esc(l.unit||'')}</td><td class="tiny">${esc(rc.by||'')}</td></tr>`).join('');
+  }
+  function renderRecv(){
+    recvFillPickers();
+    if(el('r-day') && !el('r-day').value) el('r-day').value = today();
+    const day = (el('r-day') && el('r-day').value) || today();
+    const rows = recvFiltered();
     el('recvBody').innerHTML = rows.map(({o,l,r})=>`
-      <tr><td>${esc(o.no)}</td><td>${esc(o.supplier)}</td><td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
+      <tr><td><input type="checkbox" style="width:auto" data-rck="${esc(o.id)}:${l.no}"></td>
+      <td>${esc(o.no)}</td><td>${esc(o.supplier)}</td><td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
       <td class="num">${numf(l.qty)}${esc(l.unit)}</td><td class="num">${numf(r.got)}</td><td class="num">${numf(r.rest)}</td>
       <td>${l.due?`<span class="${l.due<today()?'pill bad':'tiny'}">${esc(jdate(l.due))}</span>`:'<span class="tiny muted">—</span>'}</td>
       <td><div class="row" style="gap:4px">
-        <input type="date" style="width:140px" data-rd="${esc(o.id)}:${l.no}" value="${today()}">
+        <input type="date" style="width:140px" data-rd="${esc(o.id)}:${l.no}" value="${day}">
         <input inputmode="decimal" class="cma" style="width:92px;text-align:right" placeholder="数量" data-rq="${esc(o.id)}:${l.no}" value="${commaStr(r.rest)}">
         ${l.cur==='USD'?`<input inputmode="decimal" style="width:80px" placeholder="レート" data-rr="${esc(o.id)}:${l.no}">`:''}
         ${(l.priceFixed ?? l.price)==null?`<input inputmode="decimal" style="width:80px" placeholder="単価" data-rp="${esc(o.id)}:${l.no}">`:''}
         <button class="btn small" data-rsave="${esc(o.id)}:${l.no}">登録</button>
         <button class="btn quiet small" data-rclose="${esc(o.id)}:${l.no}">打切り</button>
-      </div></td></tr>`).join('') || '<tr><td colspan="8" class="muted tiny">未入荷の明細はありません。</td></tr>';
+      </div></td></tr>`).join('') || '<tr><td colspan="9" class="muted tiny">未入荷の明細はありません。</td></tr>';
+    if(el('r-all')) el('r-all').checked = false;
+    renderRecvDay(day);
+  }
+  // チェックした行をまとめて入荷にする（保存は注文1件につき1回）
+  async function bulkReceive(){
+    const msg = el('r-msg');
+    const boxes = [...document.querySelectorAll('[data-rck]')].filter(b=>b.checked);
+    if(!boxes.length){ msg.textContent = 'チェックした行がありません。'; return; }
+    const byOrder = new Map();
+    let skipped = 0, lines = 0;
+    boxes.forEach(b=>{
+      const key = b.dataset.rck;
+      const [id, no] = key.split(':');
+      const o = orders.find(x=>x.id===id); if(!o) return;
+      const l = o.lines.find(x=>String(x.no)===no); if(!l) return;
+      const qBox = document.querySelector(`[data-rq="${key}"]`);
+      const q = numIn(qBox ? qBox.value : '');
+      if(isNaN(q) || q === 0){ skipped++; return; }
+      const dBox = document.querySelector(`[data-rd="${key}"]`);
+      const d = (dBox && dBox.value) || today();
+      const rateEl = document.querySelector(`[data-rr="${key}"]`);
+      const pBox = document.querySelector(`[data-rp="${key}"]`);
+      if(pBox && String(pBox.value).trim() !== ''){
+        const pv = parseFloat(pBox.value);
+        if(!isNaN(pv) && pv >= 0){
+          l.price = pv; l.priceFixed = pv;
+          l.priceLog = (l.priceLog||[]).concat([{p:pv, by: meStaff().n, at: new Date().toISOString()}]);
+        }
+      }
+      l.recv = (l.recv||[]).concat([{d, q, rate: rateEl && rateEl.value ? parseFloat(rateEl.value) : null,
+        by: meStaff().n}]);
+      lines++;
+      byOrder.set(o.id, o);
+    });
+    if(!byOrder.size){ msg.textContent = '数量が入っていないため、登録できる行がありませんでした。'; return; }
+    msg.textContent = '登録しています…';
+    let ng = 0, ok = 0;
+    for(const o of byOrder.values()){
+      o.updatedAt = new Date().toISOString();
+      const done = await saveDoc('orders', o.id, o);
+      if(done) ok++; else { ng++; el('storeBanner').hidden = false; }
+    }
+    renderAll();
+    msg.textContent = (ok ? lines + '行（注文' + ok + '件）を入荷にしました。' : '')
+      + (skipped ? '　数量が空の' + skipped + '行は飛ばしました。' : '')
+      + (ng ? '　' + ng + '件は保存できませんでした。' : '');
   }
   async function saveReceipt(key, close){
     const [id, no] = key.split(':');
@@ -2623,6 +2743,14 @@
   });
   el('l-q').addEventListener('input', renderList);
   el('lateOnly').onchange = renderRecv;
+  el('r-sup').onchange = renderRecv;
+  el('r-no').onchange  = renderRecv;
+  el('r-q').addEventListener('input', renderRecv);
+  el('r-day').onchange = renderRecv;
+  el('r-all').onchange = e => {
+    document.querySelectorAll('[data-rck]').forEach(b => { b.checked = e.target.checked; });
+  };
+  el('r-bulk').onclick = bulkReceive;
   el('recvBody').addEventListener('click', e=>{
     const s = e.target.dataset.rsave, c = e.target.dataset.rclose;
     if(s) saveReceipt(s,false);
