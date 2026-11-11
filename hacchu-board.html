@@ -399,6 +399,11 @@
 
   <!-- ============ 入荷 ============ -->
   <section id="pane-recv" hidden>
+    <div class="card" id="slipCard" hidden>
+      <div class="row"><h2 style="margin:0" id="slipTitle">読み取った伝票</h2></div>
+      <div id="slipList"></div>
+      <div class="hint">メールで届いた出荷案内書・納品書を読み取ったものです。「この伝票で埋める」を押すと、下の明細に数量が入った状態で並びます。<strong>必ず紙と見比べてから</strong>「まとめて入荷にする」を押してください。</div>
+    </div>
     <div class="card">
       <div class="row">
         <h2 style="margin:0">未入荷の明細</h2>
@@ -625,9 +630,10 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v42';
+  const APP_VER     = '2026-11-11 v43';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
+  let slips = [];   // メールから読み取った入荷伝票（確認待ち）
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
                   chatId:'', chatName:'', fromAddr:'fishing2@linesystem.jp'};
   let pca = null, account = null, token = '';
@@ -760,6 +766,17 @@
       // 承認依頼の理由・資料URL、FAX送信済みの記録を注文に戻す
       staffHooks = {};
       Object.keys(t).forEach(function(k){ if(k.indexOf('hook:') === 0) staffHooks[k] = t[k]; });
+      // メールから読み取った入荷伝票（slip:）を拾う。片付け済みは出さない。
+      slips = [];
+      Object.keys(t).forEach(function(k){
+        if(k.indexOf('slip:') !== 0) return;
+        if(!t[k]) return;
+        try{
+          const j = JSON.parse(t[k]);
+          if(j && j.status !== 'done'){ j._key = k; slips.push(j); }
+        }catch(e){}
+      });
+      slips.sort(function(x,y){ return String(y.at||'').localeCompare(String(x.at||'')); });
       orders.forEach(function(o){
         o.faxSentAt = t['faxsent:' + o.id] || '';
         o.mailSentAt = t['mailsent:' + o.id] || '';
@@ -1807,8 +1824,71 @@
       <td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
       <td class="num">${numf(rc.q)}${esc(l.unit||'')}</td><td class="tiny">${esc(rc.by||'')}</td></tr>`).join('');
   }
+  // ---------- メールから読み取った入荷伝票 ----------
+  function renderSlips(){
+    const card = el('slipCard'); if(!card) return;
+    if(!slips.length){ card.hidden = true; return; }
+    card.hidden = false;
+    el('slipTitle').textContent = '読み取った伝票（' + slips.length + '件）';
+    el('slipList').innerHTML = slips.map(function(sp){
+      const n = (sp.lines||[]).length, ng = (sp.skipped||[]).length;
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0">'
+        + '<div class="row" style="gap:10px;flex-wrap:wrap">'
+        + '<b>' + esc(sp.sup||'（仕入先不明）') + '</b>'
+        + (sp.slipNo ? '<span class="tiny muted">伝票No ' + esc(sp.slipNo) + '</span>' : '')
+        + (sp.date ? '<span class="tiny muted">' + esc(jdate(sp.date)) + '</span>' : '')
+        + '<span class="tiny muted">' + n + '行</span>'
+        + (ng ? '<span class="pill warn">' + ng + '行は結びつきませんでした</span>' : '')
+        + '<span style="margin-left:auto"></span>'
+        + '<button class="btn small" data-slipuse="' + esc(sp._key) + '">この伝票で埋める</button>'
+        + '<button class="btn quiet small" data-slipdone="' + esc(sp._key) + '">片付ける</button>'
+        + '</div>'
+        + (ng ? '<div class="tiny muted" style="margin-top:8px">結びつかなかった行：'
+            + sp.skipped.map(function(x){ return esc(String(x.raw||'')) + '（' + esc(String(x.why||'')) + '）'; }).join('／')
+            + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+  // 伝票の内容を、下の未入荷明細に流し込む（登録はしない）
+  function useSlip(key){
+    const sp = slips.find(function(x){ return x._key === key; });
+    if(!sp) return;
+    if(el('r-sup')) el('r-sup').value = sp.sup || '';
+    if(el('r-no'))  el('r-no').value  = '';
+    if(el('r-q'))   el('r-q').value   = '';
+    if(el('r-day') && sp.date) el('r-day').value = sp.date;
+    renderRecv();
+    let hit = 0; const miss = [];
+    (sp.lines||[]).forEach(function(l){
+      const o = orders.find(function(x){ return x.no === l.orderNo; });
+      if(!o){ miss.push(l.orderNo + ' ' + (l.name||'')); return; }
+      const k = o.id + ':' + l.lineNo;
+      const box = document.querySelector('[data-rck="' + k + '"]');
+      const qty = document.querySelector('[data-rq="' + k + '"]');
+      if(!box || !qty){ miss.push((l.orderNo||'') + ' ' + (l.name||'') + '（もう入荷済みか、明細が変わっています）'); return; }
+      qty.value = commaStr(l.qty);
+      box.checked = true;
+      hit++;
+    });
+    const msg = el('r-msg');
+    if(msg) msg.textContent = (sp.slipNo ? '伝票 ' + sp.slipNo + '：' : '')
+      + hit + '行に数量を入れました。'
+      + (miss.length ? '　入れられなかった行：' + miss.join('／') : '')
+      + '　紙と見比べてから「まとめて入荷にする」を押してください。';
+    const first = document.querySelector('#recvBody [data-rck]:checked');
+    if(first) first.scrollIntoView({block:'center'});
+  }
+  async function slipDone(key){
+    const sp = slips.find(function(x){ return x._key === key; });
+    if(!sp) return;
+    const copy = Object.assign({}, sp); delete copy._key; copy.status = 'done';
+    const r = await api('putSetting', { key: key, value: JSON.stringify(copy) });
+    if(r && r.ok){ await loadAll(); renderAll(); }
+    else if(el('r-msg')) el('r-msg').textContent = '片付けられませんでした。';
+  }
   function renderRecv(){
     recvFillPickers();
+    renderSlips();
     if(el('r-day') && !el('r-day').value) el('r-day').value = today();
     const day = (el('r-day') && el('r-day').value) || today();
     const rows = recvFiltered();
@@ -2753,6 +2833,11 @@
     document.querySelectorAll('[data-rck]').forEach(b => { b.checked = e.target.checked; });
   };
   el('r-bulk').onclick = bulkReceive;
+  el('slipList').addEventListener('click', function(e){
+    const u = e.target.dataset.slipuse, d = e.target.dataset.slipdone;
+    if(u) useSlip(u);
+    if(d) slipDone(d);
+  });
   el('recvBody').addEventListener('click', e=>{
     const s = e.target.dataset.rsave, c = e.target.dataset.rclose;
     if(s) saveReceipt(s,false);
