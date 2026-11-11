@@ -402,7 +402,7 @@
     <div class="card" id="slipCard" hidden>
       <div class="row"><h2 style="margin:0" id="slipTitle">読み取った伝票</h2></div>
       <div id="slipList"></div>
-      <div class="hint">メールで届いた出荷案内書・納品書を読み取ったものです。「この伝票で埋める」を押すと、下の明細に数量が入った状態で並びます。<strong>必ず紙と見比べてから</strong>「まとめて入荷にする」を押してください。</div>
+      <div class="hint">メールで届いた出荷案内書・納品書を読み取ったものです。「この伝票のとおり入荷にする」を押すと、登録する内容が一覧で出ますので、紙と見比べて「OK」。それで入荷まで終わります。数量が違うときは「数量を直してから入れる」で下の明細に流し込み、直してから「まとめて入荷にする」を押してください。</div>
     </div>
     <div class="card">
       <div class="row">
@@ -630,7 +630,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v43';
+  const APP_VER     = '2026-11-11 v44';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
@@ -1840,7 +1840,10 @@
         + '<span class="tiny muted">' + n + '行</span>'
         + (ng ? '<span class="pill warn">' + ng + '行は結びつきませんでした</span>' : '')
         + '<span style="margin-left:auto"></span>'
-        + '<button class="btn small" data-slipuse="' + esc(sp._key) + '">この伝票で埋める</button>'
+        + ((sp.lines||[]).length
+            ? '<button class="btn small" data-slipgo="' + esc(sp._key) + '">この伝票のとおり入荷にする</button>'
+            : '')
+        + '<button class="btn quiet small" data-slipuse="' + esc(sp._key) + '">数量を直してから入れる</button>'
         + '<button class="btn quiet small" data-slipdone="' + esc(sp._key) + '">片付ける</button>'
         + '</div>'
         + (ng ? '<div class="tiny muted" style="margin-top:8px">結びつかなかった行：'
@@ -1877,6 +1880,38 @@
       + '　紙と見比べてから「まとめて入荷にする」を押してください。';
     const first = document.querySelector('#recvBody [data-rck]:checked');
     if(first) first.scrollIntoView({block:'center'});
+  }
+  // 1回で済ませる：埋めて、内容を見せて、よければそのまま入荷にして片付ける
+  async function slipGo(key){
+    const sp = slips.find(function(x){ return x._key === key; });
+    if(!sp) return;
+    useSlip(key);
+    const rows = [];
+    document.querySelectorAll('#recvBody [data-rck]').forEach(function(box){
+      if(!box.checked) return;
+      const tr = box.closest('tr');
+      const q = document.querySelector('[data-rq="' + box.dataset.rck + '"]');
+      const td = tr ? tr.cells : null;
+      rows.push((td && td[1] ? td[1].textContent.trim() : '') + '　'
+        + (td && td[3] ? td[3].textContent.trim() : '') + '　'
+        + (q ? q.value : ''));
+    });
+    if(!rows.length){
+      if(el('r-msg')) el('r-msg').textContent = '入れられる行がありませんでした。中身をご確認ください。';
+      return;
+    }
+    const day = (el('r-day') && el('r-day').value) || today();
+    const ng = (sp.skipped||[]).length;
+    const ok = confirm(jdate(day) + ' の入荷として、次の' + rows.length + '行を登録します。\n\n'
+      + rows.join('\n')
+      + (ng ? '\n\n（結びつかなかった' + ng + '行は登録されません）' : '')
+      + '\n\n入荷の登録はあとから取り消せません。よろしいですか？');
+    if(!ok){
+      if(el('r-msg')) el('r-msg').textContent = 'やめました。数量を直してから入れることもできます。';
+      return;
+    }
+    await bulkReceive();
+    await slipDone(key);
   }
   async function slipDone(key){
     const sp = slips.find(function(x){ return x._key === key; });
@@ -2834,7 +2869,8 @@
   };
   el('r-bulk').onclick = bulkReceive;
   el('slipList').addEventListener('click', function(e){
-    const u = e.target.dataset.slipuse, d = e.target.dataset.slipdone;
+    const g = e.target.dataset.slipgo, u = e.target.dataset.slipuse, d = e.target.dataset.slipdone;
+    if(g) slipGo(g);
     if(u) useSlip(u);
     if(d) slipDone(d);
   });
