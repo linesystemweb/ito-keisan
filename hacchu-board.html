@@ -399,6 +399,11 @@
 
   <!-- ============ 入荷 ============ -->
   <section id="pane-recv" hidden>
+    <div class="card" id="autoCard" hidden>
+      <div class="row"><h2 style="margin:0" id="autoTitle">自動で入荷にしました</h2></div>
+      <div id="autoList"></div>
+      <div class="hint">読み取った伝票のうち、注文書とぴったり合った行を自動で入荷にしました。下の「登録した入荷」から<strong>1件ずつ取り消せます</strong>ので、紙と見比べてご確認ください。</div>
+    </div>
     <div class="card" id="slipCard" hidden>
       <div class="row"><h2 style="margin:0" id="slipTitle">読み取った伝票</h2></div>
       <div id="slipList"></div>
@@ -432,11 +437,11 @@
       <div class="row"><h2 style="margin:0" id="r-todayTitle">この日に登録した入荷</h2></div>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">入荷</th><th>登録者</th></tr></thead>
+          <thead><tr><th>発注No</th><th>仕入先</th><th>品名</th><th class="num">入荷</th><th>登録者</th><th></th></tr></thead>
           <tbody id="r-today"></tbody>
         </table>
       </div>
-      <div class="hint">紙の出荷案内書と突き合わせてご確認ください。</div>
+      <div class="hint">紙の出荷案内書と突き合わせてご確認ください。間違っていたら「取り消す」で消せます。</div>
     </div>
   </section>
 
@@ -630,7 +635,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v44';
+  const APP_VER     = '2026-11-11 v45';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
@@ -804,6 +809,8 @@
     if(ok && account){
       el('whoami').textContent = (account.name || account.username || '') + '　版 ' + APP_VER;
     }
+    // 読み取った伝票のうち、注文書とぴったり合うものはここで自動的に入荷にする
+    if(ok){ try{ await autoApplySlips(); }catch(e){} }
     // ほかの人の登録を拾うため、30秒ごとに読み直す
     setInterval(function(){ if(!document.hidden) loadAll(); }, 30000);
     document.addEventListener('visibilitychange', function(){ if(!document.hidden) loadAll(); });
@@ -1815,14 +1822,125 @@
     const card = el('r-todayCard'); if(!card) return;
     const list = [];
     orders.forEach(o => isLive(o) && o.lines.forEach(l =>
-      (l.recv||[]).forEach(rc => { if(rc.d === day) list.push({o,l,rc}); })));
+      (l.recv||[]).forEach((rc, ri) => { if(rc.d === day) list.push({o,l,rc,ri}); })));
     if(!list.length){ card.hidden = true; return; }
     card.hidden = false;
     el('r-todayTitle').textContent = jdate(day) + ' に登録した入荷（' + list.length + '行）';
-    el('r-today').innerHTML = list.map(({o,l,rc})=>`
+    el('r-today').innerHTML = list.map(({o,l,rc,ri})=>`
       <tr><td>${esc(o.no)}</td><td>${esc(o.supplier)}</td>
       <td>${esc(l.name)} <span class="tiny muted">${esc([l.size,l.color].filter(Boolean).join(' '))}</span></td>
-      <td class="num">${numf(rc.q)}${esc(l.unit||'')}</td><td class="tiny">${esc(rc.by||'')}</td></tr>`).join('');
+      <td class="num">${numf(rc.q)}${esc(l.unit||'')}</td><td class="tiny">${esc(rc.by||'')}${rc.auto?'（自動）':''}</td>
+      <td><button class="btn quiet small" data-rundo="${esc(o.id)}:${l.no}:${ri}">取り消す</button></td></tr>`).join('');
+  }
+  // 読み取った伝票のうち、注文書とぴったり合うものを自動で入荷にする
+  let autoRan = false, autoDone = [];
+  function slipFits(sp){
+    if(!sp || !(sp.lines||[]).length) return null;
+    const plan = [];
+    for(let i = 0; i < sp.lines.length; i++){
+      const sl = sp.lines[i];
+      const o = orders.find(x => x.no === sl.orderNo);
+      if(!o || !isLive(o)) return null;
+      if(sp.sup && o.supplier !== sp.sup) return null;
+      const l = o.lines.find(x => String(x.no) === String(sl.lineNo));
+      if(!l || l.closed) return null;
+      const q = Number(sl.qty);
+      if(!(q > 0)) return null;
+      if(q > remaining(l).rest) return null;      // 多すぎる入荷は自動でやらない
+      plan.push({o: o, l: l, q: q});
+    }
+    return plan;
+  }
+  async function autoApplySlips(){
+    if(autoRan || readOnly) return;
+    autoRan = true;
+    autoDone = [];
+    const day0 = today();
+    const list = slips.slice();
+    for(let si = 0; si < list.length; si++){
+      const sp = list[si];
+      const plan = slipFits(sp);
+      if(!plan) continue;
+      const touched = new Map();
+      plan.forEach(function(x){
+        x.l.recv = (x.l.recv||[]).concat([{ d: sp.date || day0, q: x.q, rate: null,
+          by: meStaff().n, auto: true }]);
+        touched.set(x.o.id, x.o);
+        autoDone.push({i: autoDone.length, no: x.o.no, lineNo: x.l.no, q: x.q, name: x.l.name,
+          unit: x.l.unit || '', slipNo: sp.slipNo || '', date: sp.date || day0,
+          ng: (sp.skipped||[]).length});
+      });
+      let ok = true;
+      const arr = Array.from(touched.values());
+      for(let k = 0; k < arr.length; k++){
+        arr[k].updatedAt = new Date().toISOString();
+        if(!(await saveDoc('orders', arr[k].id, arr[k]))) ok = false;
+      }
+      if(ok){
+        const copy = Object.assign({}, sp); delete copy._key;
+        copy.status = 'done'; copy.autoAt = new Date().toISOString();
+        await api('putSetting', { key: sp._key, value: JSON.stringify(copy) });
+      }
+    }
+    if(autoDone.length){
+      if(el('r-day')) el('r-day').value = autoDone[0].date;
+      await loadAll(); renderAll();
+    }
+  }
+  function renderAuto(){
+    const card = el('autoCard'); if(!card) return;
+    if(!autoDone.length){ card.hidden = true; return; }
+    card.hidden = false;
+    let ng = 0;
+    autoDone.forEach(function(x){ if((x.ng||0) > ng) ng = x.ng; });
+    el('autoTitle').textContent = '自動で入荷にしました（' + autoDone.length + '行）';
+    el('autoList').innerHTML = autoDone.map(function(x){
+      return '<div class="row" style="gap:10px;flex-wrap:wrap;padding:4px 0">'
+        + '<span>' + esc(x.no) + '</span>'
+        + '<span>' + esc(x.name) + '</span>'
+        + '<span>' + numf(x.q) + esc(x.unit) + '</span>'
+        + '<span class="tiny muted">' + esc(jdate(x.date)) + (x.slipNo ? '　伝票 ' + esc(x.slipNo) : '') + '</span>'
+        + '<button class="btn quiet small" style="margin-left:auto" data-aundo="' + x.i + '">取り消す</button>'
+        + '</div>';
+    }).join('')
+      + (ng ? '<div class="tiny" style="margin-top:8px"><span class="pill warn">結びつかなかった行が ' + ng
+             + ' 行あります</span>　伝票の写真でご確認ください。</div>' : '');
+  }
+  // 自動で入れた分を取り消す（日付と数量で元の行を探す）
+  async function undoAuto(i){
+    const x = autoDone[Number(i)]; if(!x) return;
+    const o = orders.find(function(y){ return y.no === x.no; }); if(!o) return;
+    const l = o.lines.find(function(y){ return String(y.no) === String(x.lineNo); }); if(!l) return;
+    let at = -1;
+    (l.recv||[]).forEach(function(rc, k){
+      if(rc.auto && rc.d === x.date && Number(rc.q) === Number(x.q)) at = k;
+    });
+    if(at < 0){ if(el('r-msg')) el('r-msg').textContent = 'その入荷は見つかりませんでした（すでに取り消されています）。'; return; }
+    if(!confirm(o.no + '　' + l.name + '　' + numf(x.q) + (x.unit||'')
+      + ' の入荷を取り消します。よろしいですか？')) return;
+    l.recv.splice(at, 1);
+    o.updatedAt = new Date().toISOString();
+    if(!(await saveDoc('orders', o.id, o))){ el('storeBanner').hidden = false; return; }
+    autoDone = autoDone.filter(function(y){ return y !== x; });
+    await loadAll();
+    renderAll();
+    if(el('r-msg')) el('r-msg').textContent = '自動で入れた入荷を1件取り消しました。';
+  }
+  // 入荷の登録を1件取り消す
+  async function undoReceipt(key){
+    const parts = String(key).split(':');
+    const o = orders.find(x => x.id === parts[0]); if(!o) return;
+    const l = o.lines.find(x => String(x.no) === parts[1]); if(!l) return;
+    const ri = Number(parts[2]);
+    const rc = (l.recv||[])[ri]; if(!rc) return;
+    if(!confirm(o.no + '　' + l.name + '　' + numf(rc.q) + (l.unit||'')
+      + ' の入荷を取り消します。よろしいですか？')) return;
+    l.recv.splice(ri, 1);
+    o.updatedAt = new Date().toISOString();
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok){ el('storeBanner').hidden = false; return; }
+    renderAll();
+    if(el('r-msg')) el('r-msg').textContent = '入荷を1件取り消しました。';
   }
   // ---------- メールから読み取った入荷伝票 ----------
   function renderSlips(){
@@ -1923,6 +2041,7 @@
   }
   function renderRecv(){
     recvFillPickers();
+    renderAuto();
     renderSlips();
     if(el('r-day') && !el('r-day').value) el('r-day').value = today();
     const day = (el('r-day') && el('r-day').value) || today();
@@ -2868,6 +2987,14 @@
     document.querySelectorAll('[data-rck]').forEach(b => { b.checked = e.target.checked; });
   };
   el('r-bulk').onclick = bulkReceive;
+  el('autoList').addEventListener('click', function(e){
+    const a = e.target.dataset.aundo;
+    if(a !== undefined) undoAuto(a);
+  });
+  el('r-today').addEventListener('click', function(e){
+    const u = e.target.dataset.rundo;
+    if(u) undoReceipt(u);
+  });
   el('slipList').addEventListener('click', function(e){
     const g = e.target.dataset.slipgo, u = e.target.dataset.slipuse, d = e.target.dataset.slipdone;
     if(g) slipGo(g);
