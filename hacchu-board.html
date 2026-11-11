@@ -602,7 +602,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-06 v40';
+  const APP_VER     = '2026-11-11 v41';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
@@ -847,6 +847,8 @@
   function isTestOrder(o){
     return /テスト|ﾃｽﾄ|test/i.test(String(o.note||'') + ' ' + String(o.memo||''));
   }
+  // 仕入先「テスト送信」は動作確認用。送信はするが、社長への合計リストには出さない。
+  function isTestSupplier(o){ return String(o.supplier||'').indexOf('テスト送信') === 0; }
   // メールの下書きを保管サーバに預ける。送るのは保管サーバ側（5分後）。
   async function storeMailQ(o, again){
     if(!isMailSupplier(o.supplier)) return false;
@@ -907,8 +909,8 @@
     const p = jstParts(new Date());
     const ym = p ? (p.year + '-' + p.month) : today().slice(0, 7);
     const mine = orders.filter(o => String(o.date || '').slice(0, 7) === ym
-                                 && isLive(o) && !isTestOrder(o));
-    if(!mine.some(o => o.id === order.id)) mine.push(order);
+                                 && isLive(o) && !isTestOrder(o) && !isTestSupplier(o));
+    if(!isTestSupplier(order) && !mine.some(o => o.id === order.id)) mine.push(order);
     mine.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
                      || String(a.no || '').localeCompare(String(b.no || '')));
     let total = 0;
@@ -1484,7 +1486,7 @@
     }
     if(ok){
       // 社長（共通の通知先）へ、今月の発注を一覧で知らせる。テスト用の注文は送らない。
-      if(!isTestOrder(order)){ try{ await notify(monthlyReport(order)); }catch(e){} }
+      if(!isTestOrder(order) && !isTestSupplier(order)){ try{ await notify(monthlyReport(order)); }catch(e){} }
       // 仮登録にチェックの入った行を品目マスタへ
       for(const l of lines.filter(x=>x.register && x.name)){
         const item = {s:el('f-sup').value, c:l.code||('TMP-'+Date.now().toString(36).slice(-4)), n:l.name,
@@ -2425,7 +2427,7 @@
     }
     fixing = null; fixAdd = []; fixEdits = {}; fixDel = {};
     // 琴浦社長に出している合計リストは送ったきりなので、直した分を出し直す
-    if(!isTestOrder(o2)){ try{ await notify(monthlyReport(o2, '注文書を直しました')); }catch(e){} }
+    if(!isTestOrder(o2) && !isTestSupplier(o2)){ try{ await notify(monthlyReport(o2, '注文書を直しました')); }catch(e){} }
     renderAll(); renderDetail(oid);
     // 下に注文書を開いたままのことがあるので、そちらも作り直す
     if(shownOrder && shownOrder.id === oid){ const fresh = orders.find(x=>x.id===oid); if(fresh) showSheet(fresh); }
@@ -2455,7 +2457,7 @@
     const ok = await saveDoc('orders', o.id, o);
     if(!ok){ msg.textContent = '保存できませんでした。'; return; }
     // 合計リストも出し直す（取り消した分は合計から外れる）
-    if(!isTestOrder(o)){
+    if(!isTestOrder(o) && !isTestSupplier(o)){
       try{ await notify(monthlyReport(o, back ? '取り消しを元に戻しました' : '注文を取り消しました')); }catch(e){}
     }
     renderAll(); renderDetail(oid);
