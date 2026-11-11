@@ -448,7 +448,18 @@
   <!-- ============ 集計 ============ -->
   <section id="pane-sum" hidden>
     <div class="card">
-      <h2>支払予定（入荷ベース・入荷月の翌月払い）</h2>
+      <h2 style="margin-bottom:2px">支払予定（概算）</h2>
+      <div class="sub" style="margin-bottom:12px">その月に入荷したぶんを月末で締め、<strong>翌月末のお支払い</strong>として見込んだ金額です。たとえば11月中に入荷したものは11月末に請求され、12月末のお支払いになります。<strong>目安の参考値</strong>ですので、実際の請求書とは差が出ます。</div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>支払月</th><th class="num">税抜</th><th class="num">消費税</th><th class="num">税込</th><th class="num">単価未定</th></tr></thead>
+          <tbody id="payMonth"></tbody>
+        </table>
+      </div>
+      <div class="hint">「単価未定」の行がある月は、その分が上の金額に入っていません。実際にはもう少し増えます。</div>
+    </div>
+    <div class="card">
+      <h2>支払予定の内訳（仕入先ごと）</h2>
       <div class="tablewrap">
         <table>
           <thead><tr><th>支払月</th><th>仕入先</th><th class="num">税抜</th><th class="num">消費税</th><th class="num">税込</th><th class="num">単価未定</th></tr></thead>
@@ -635,7 +646,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v45';
+  const APP_VER     = '2026-11-11 v46';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
@@ -2157,6 +2168,28 @@
       });
     });
     const keys = Object.keys(pay).sort();
+    // 月ごとにまとめた概算（参考値）
+    const byMonth = {};
+    keys.forEach(k=>{
+      const m = k.split('|')[0];
+      byMonth[m] = byMonth[m] || {net:0, unknown:0};
+      byMonth[m].net += pay[k].net;
+      byMonth[m].unknown += pay[k].unknown;
+    });
+    const ms = Object.keys(byMonth).sort();
+    let gNet = 0, gUnknown = 0;
+    el('payMonth').innerHTML = (ms.map(m=>{
+      const v = byMonth[m];
+      const tax = Math.floor(v.net*0.1);
+      gNet += v.net; gUnknown += v.unknown;
+      return `<tr><td><b>${esc(jdate(m))}末</b></td><td class="num">${yen(v.net)}</td>
+        <td class="num">${yen(tax)}</td><td class="num"><b>${yen(v.net+tax)}</b></td>
+        <td class="num">${v.unknown?`<span class="pill bad">${v.unknown}行</span>`:'—'}</td></tr>`;
+    }).join('') + (ms.length>1
+      ? `<tr><td><b>合計</b></td><td class="num">${yen(gNet)}</td><td class="num">${yen(Math.floor(gNet*0.1))}</td>
+         <td class="num"><b>${yen(gNet+Math.floor(gNet*0.1))}</b></td>
+         <td class="num">${gUnknown?`<span class="pill bad">${gUnknown}行</span>`:'—'}</td></tr>` : ''))
+      || '<tr><td colspan="5" class="muted tiny">入荷を登録すると支払予定が出ます。</td></tr>';
     el('payBody').innerHTML = keys.map(k=>{
       const [m, sup] = k.split('|'); const v = pay[k];
       const tax = Math.floor(v.net*0.1);
