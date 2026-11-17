@@ -377,6 +377,11 @@
 
   <!-- ============ 発注一覧 ============ -->
   <section id="pane-list" hidden>
+    <div class="card" id="fixCard" hidden>
+      <div class="row"><h2 style="margin:0" id="fixTitle">仕入先からの訂正の連絡</h2></div>
+      <div id="fixList"></div>
+      <div class="hint">FAX・メールで届いた訂正を読み取ったものです。中身を確かめてから「この通り直す」を押してください。</div>
+    </div>
     <div class="card">
       <div class="grid g3">
         <label class="field"><span>発注者</span><select id="l-staff"><option value="">全員</option></select></label>
@@ -646,10 +651,11 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-11 v46';
+  const APP_VER     = '2026-11-17 v47';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
+  let fixNotes = [];// 仕入先から届いた訂正の連絡（確認待ち）
   let settings = {kind:'approval', useApproval:true, approver:'KO', approverName:'', threshold:100000,
                   chatId:'', chatName:'', fromAddr:'fishing2@linesystem.jp'};
   let pca = null, account = null, token = '';
@@ -783,16 +789,20 @@
       staffHooks = {};
       Object.keys(t).forEach(function(k){ if(k.indexOf('hook:') === 0) staffHooks[k] = t[k]; });
       // メールから読み取った入荷伝票（slip:）を拾う。片付け済みは出さない。
-      slips = [];
+      slips = []; fixNotes = [];
       Object.keys(t).forEach(function(k){
         if(k.indexOf('slip:') !== 0) return;
         if(!t[k]) return;
         try{
           const j = JSON.parse(t[k]);
-          if(j && j.status !== 'done'){ j._key = k; slips.push(j); }
+          if(j && j.status !== 'done'){
+            j._key = k;
+            if(j.kind === 'pricefix') fixNotes.push(j); else slips.push(j);
+          }
         }catch(e){}
       });
-      slips.sort(function(x,y){ return String(y.at||'').localeCompare(String(x.at||'')); });
+      const byAt = function(x,y){ return String(y.at||'').localeCompare(String(x.at||'')); };
+      slips.sort(byAt); fixNotes.sort(byAt);
       orders.forEach(function(o){
         o.faxSentAt = t['faxsent:' + o.id] || '';
         o.mailSentAt = t['mailsent:' + o.id] || '';
@@ -1653,6 +1663,7 @@
   // 取り消した注文・差し戻した注文は、入荷や支払予定の計算に入れない
   function isLive(o){ return o.status !== 'cancelled' && o.status !== 'rejected'; }
   function renderList(){
+    renderFixes();
     const fs = el('l-staff').value, fsup = el('l-sup').value, fst = el('l-status').value;
     const q = (el('l-q').value||'').trim().toLowerCase();
     const hit = o => !q || [o.no, o.subNo, o.memo, o.supplier, o.staff]
@@ -1952,6 +1963,117 @@
     if(!ok){ el('storeBanner').hidden = false; return; }
     renderAll();
     if(el('r-msg')) el('r-msg').textContent = '入荷を1件取り消しました。';
+  }
+  // ---------- 仕入先から届いた訂正の連絡 ----------
+  function fixAmt(v){ return v == null ? '未定' : ('¥' + (Math.round(Number(v)*100)/100)); }
+  function fixWord(f){ return f === 'qty' ? '数量' : f === 'due' ? '納期' : '単価'; }
+  function fixShow(c){ return c.field === 'qty' ? (numf(c.from) + '→' + numf(c.to)) : (fixAmt(c.from) + '→' + fixAmt(c.to)); }
+  function renderFixes(){
+    const card = el('fixCard'); if(!card) return;
+    if(!fixNotes.length){ card.hidden = true; return; }
+    card.hidden = false;
+    el('fixTitle').textContent = '仕入先からの訂正の連絡（' + fixNotes.length + '件）';
+    el('fixList').innerHTML = fixNotes.map(function(fx){
+      const chg = (fx.changes||[]);
+      const o = orders.find(function(x){ return x.no === fx.orderNo; });
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0">'
+        + '<div class="row" style="gap:10px;flex-wrap:wrap">'
+        + '<b>' + esc(fx.sup||'（仕入先不明）') + '</b>'
+        + '<span class="pill warn">' + esc(fx.orderNo||'注文番号不明') + '</span>'
+        + (fx.via ? '<span class="tiny muted">' + esc(fx.via) + '</span>' : '')
+        + (fx.recvAt ? '<span class="tiny muted">' + esc(fx.recvAt) + '</span>' : '')
+        + (o ? '' : '<span class="pill bad">この注文番号が見つかりません</span>')
+        + '</div>'
+        + (fx.note ? '<div class="tiny" style="margin-top:6px">先方のコメント：' + esc(fx.note) + '</div>' : '')
+        + (chg.length
+            ? '<ul style="margin:8px 0 0;padding-left:1.2em">' + chg.map(function(c){
+                return '<li>行' + esc(String(c.lineNo)) + '　' + esc(c.name||'') + '　'
+                  + fixWord(c.field) + ' <b>' + esc(fixShow(c)) + '</b></li>'; }).join('') + '</ul>'
+            : '<div class="tiny muted" style="margin-top:6px">直す内容は読み取れませんでした。元の書面をご確認ください。</div>')
+        + ((fx.unsure||[]).length
+            ? '<div class="tiny muted" style="margin-top:6px">はっきり読めなかったところ：'
+              + fx.unsure.map(function(u){ return esc(String(u)); }).join('／') + '</div>' : '')
+        + '<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap">'
+        + ((chg.length && o) ? '<button class="btn small" data-fixgo="' + esc(fx._key) + '">この通り直す</button>' : '')
+        + (fx.link ? '<a class="btn quiet small" href="' + esc(fx.link) + '" target="_blank" rel="noopener">元の書面を見る</a>' : '')
+        + (o ? '<button class="btn quiet small" data-fixopen="' + esc(o.id) + '">注文を開く</button>' : '')
+        + '<button class="btn quiet small" data-fixdone="' + esc(fx._key) + '">ちがう（片付ける）</button>'
+        + '</div>'
+        + '<div class="tiny" id="fixmsg-' + esc(fx._key) + '" style="margin-top:6px"></div>'
+        + '</div>';
+    }).join('');
+  }
+  async function fixDone(key){
+    const fx = fixNotes.find(function(x){ return x._key === key; });
+    if(!fx) return;
+    const copy = Object.assign({}, fx); delete copy._key; copy.status = 'done';
+    const r = await api('putSetting', { key: key, value: JSON.stringify(copy) });
+    if(r && r.ok){ await loadAll(); renderAll(); }
+  }
+  // 読み取った訂正を、そのまま注文に反映して訂正版にする
+  async function applyFix(key){
+    const fx = fixNotes.find(function(x){ return x._key === key; });
+    if(!fx) return;
+    const msg = el('fixmsg-' + key);
+    const say = function(t){ if(msg) msg.textContent = t; };
+    const o = orders.find(function(x){ return x.no === fx.orderNo; });
+    if(!o){ say('この注文番号が見つかりません。'); return; }
+    if(o.status === 'cancelled'){ say('この注文は取り消し済みです。'); return; }
+    const chg = (fx.changes||[]).filter(function(c){ return c.field === 'price' || c.field === 'qty'; });
+    if(!chg.length){ say('直せる内容がありません。手で直してください。'); return; }
+    // ボードの今の値が、読み取った「前の値」と合っているかを先に確かめる
+    const plan = [];
+    for(const c of chg){
+      const l = o.lines.find(function(x){ return String(x.no) === String(c.lineNo); });
+      if(!l){ say('行' + c.lineNo + ' が見つかりません。明細が変わっているかもしれません。'); return; }
+      const now = c.field === 'qty' ? l.qty : (l.priceFixed ?? l.price);
+      const from = c.from == null ? null : Number(c.from);
+      const same = (now == null && from == null) || (now != null && from != null && Math.abs(Number(now) - from) < 1e-9);
+      if(!same){
+        say('行' + c.lineNo + ' の' + fixWord(c.field) + 'が、いま ' + (c.field==='qty'?numf(now):fixAmt(now))
+          + ' でした（読み取りは ' + fixShow(c) + '）。中身を確かめてから手で直してください。');
+        return;
+      }
+      if(c.field === 'qty' && Number(c.to) < remaining(l).got){
+        say('行' + c.lineNo + ' は入荷済みより少ない数量にはできません。'); return;
+      }
+      plan.push({ l: l, c: c });
+    }
+    const lines = plan.map(function(p){ return '行' + p.c.lineNo + '　' + (p.l.name||'') + '　' + fixWord(p.c.field) + ' ' + fixShow(p.c); });
+    if(!confirm(o.no + ' を次のとおり直して、訂正版にします。\n\n' + lines.join('\n')
+      + '\n\nよろしいですか？')) { say('やめました。'); return; }
+    say('直しています…');
+    const now = new Date().toISOString(), by = meStaff().n;
+    plan.forEach(function(p){
+      const l = p.l, c = p.c, to = Number(c.to);
+      if(c.field === 'qty'){
+        l.fixLog = (l.fixLog||[]).concat([{k:'qty', from:l.qty, to:to, by:by, at:now}]);
+        l.qty = to;
+      } else {
+        l.fixLog = (l.fixLog||[]).concat([{k:'price', from:(l.priceFixed ?? l.price), to:to, by:by, at:now}]);
+        l.price = to; l.priceFixed = to;
+      }
+    });
+    o.updatedAt = now;
+    const ok = await saveDoc('orders', o.id, o);
+    if(!ok){ say('保存できませんでした。'); return; }
+    // 訂正の一文を付ける
+    const sentence = REV_DEFAULT + plan.map(function(p){
+      return (p.l.name||'') + 'の' + fixWord(p.c.field) + 'を '
+        + (p.c.field==='qty' ? (numf(p.c.to) + (p.l.unit||'')) : fixAmt(p.c.to)) + ' に訂正いたしました。';
+    }).join('');
+    await api('putSetting', { key: 'rev:' + o.id, value: sentence });
+    await fixDone(key);
+    const fresh = orders.find(function(x){ return x.id === o.id; }) || o;
+    if(!isTestOrder(fresh) && !isTestSupplier(fresh)){ try{ await notify(monthlyReport(fresh, '訂正の連絡どおり直しました')); }catch(e){} }
+    renderDetail(fresh.id);
+    showSheet(fresh); switchTab('new');
+    window.scrollTo({ top: document.body.scrollHeight });
+    el('sheetMsg') && (el('sheetMsg').textContent = '');
+    alert(fresh.no + ' を直して訂正版にしました。\n\n'
+      + (isFaxSupplier(fresh.supplier)
+          ? 'この下の注文書で「FAX送信用PDFを保存」を押し、NASの「FAX送信待ち」フォルダに置いてください。'
+          : 'この下の注文書で「メールを作成」、または発注一覧の「訂正版をメールで送り直す」から送ってください。'));
   }
   // ---------- メールから読み取った入荷伝票 ----------
   function renderSlips(){
@@ -3027,6 +3149,12 @@
   el('r-today').addEventListener('click', function(e){
     const u = e.target.dataset.rundo;
     if(u) undoReceipt(u);
+  });
+  el('fixList').addEventListener('click', function(e){
+    const g = e.target.dataset.fixgo, d = e.target.dataset.fixdone, op = e.target.dataset.fixopen;
+    if(g) applyFix(g);
+    if(d) fixDone(d);
+    if(op){ renderDetail(op); const c = el('detailCard'); if(c) c.scrollIntoView({block:'start'}); }
   });
   el('slipList').addEventListener('click', function(e){
     const g = e.target.dataset.slipgo, u = e.target.dataset.slipuse, d = e.target.dataset.slipdone;
