@@ -651,7 +651,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-17 v47';
+  const APP_VER     = '2026-11-17 v48';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
@@ -2669,23 +2669,68 @@
   // こうすると日本語のフォントを持ち歩かずに済み、DELL側での変換工程も要らなくなる。
   async function buildFaxPdfBlob(){
     if(!window.html2canvas || !window.jspdf) throw new Error('PDFの部品を読み込めませんでした。');
-    const W = 794;                     // A4の幅（96dpi）。ptの指定がそのまま合う
+    const W = 794;                        // A4の幅（96dpi）。ptの指定がそのまま合う
+    const PAGE = Math.round(W * 297 / 210);  // A4の高さ＝1123px
+    const PAD = 53;                       // 紙の余白
+    const o = sheetOrder();
+    const all = (o.lines || []).filter(l => l.name);
     const box = document.createElement('div');
-    box.style.cssText = 'position:fixed;left:-20000px;top:0;width:'+W+'px;background:#fff';
-    const sheet = document.createElement('div');
-    sheet.id = 'faxsheet';
-    sheet.style.cssText = 'width:'+W+'px;padding:53px;box-sizing:border-box;background:#fff';
-    sheet.innerHTML = orderDocHtml(sheetOrder(), 13);   // 画面・メールと同じ組み方
-    box.appendChild(sheet);
+    box.style.cssText = 'position:fixed;left:-20000px;top:0;width:' + W + 'px;background:#fff';
     document.body.appendChild(box);
+    const mk = function(opt){
+      const d = document.createElement('div');
+      d.className = 'faxsheet';
+      d.style.cssText = 'width:' + W + 'px;padding:' + PAD + 'px;box-sizing:border-box;background:#fff';
+      d.innerHTML = orderDocHtml(o, 13, opt);
+      return d;
+    };
     try{
       if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
-      const canvas = await html2canvas(sheet, {scale:2, backgroundColor:'#ffffff', logging:false});
+      // まず全部を1枚に組んでみて、見出し・各行・合計欄の高さを測る
+      const probe = mk({}); box.appendChild(probe);
+      const probeTop = probe.getBoundingClientRect().top;
+      const tbls = probe.querySelectorAll('table');
+      const tbl = tbls[1];                              // 2つめが明細の表
+      const trs = tbl ? Array.prototype.slice.call(tbl.rows) : [];
+      const bottomOf = function(e){ return e.getBoundingClientRect().bottom - probeTop; };
+      const headH  = trs.length ? bottomOf(trs[0]) : 300;          // 表の見出し行まで（上の余白を含む）
+      const rowH   = trs.slice(1).map(function(tr){ return tr.offsetHeight || 24; });
+      const fullH  = probe.scrollHeight;
+      const tailH  = trs.length > 1 ? (fullH - bottomOf(trs[trs.length - 1])) : 160;  // 合計欄＋下の文言
+      box.removeChild(probe);
+      // A4に収まるように行を詰める
+      const LIMIT = PAGE - PAD;           // ここを超えたら次のページ
+      const pages = [];
+      if(fullH <= PAGE){
+        pages.push(all);
+      } else {
+        let cur = [], used = headH;
+        for(let i = 0; i < all.length; i++){
+          const h = rowH[i] || 24;
+          if(cur.length && used + h > LIMIT){ pages.push(cur); cur = []; used = headH; }
+          cur.push(all[i]); used += h;
+        }
+        if(cur.length) pages.push(cur);
+        // 合計欄が最後のページに入らなければ、合計だけのページを足す
+        let lastUsed = headH;
+        (pages[pages.length - 1] || []).forEach(function(l){
+          const i = all.indexOf(l); lastUsed += (rowH[i] || 24);
+        });
+        if(lastUsed + tailH > LIMIT) pages.push([]);
+      }
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
-      const pw = 210;
-      const h = canvas.height * pw / canvas.width;
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pw, h);
+      for(let i = 0; i < pages.length; i++){
+        const d = mk({ lines: pages[i], first: i === 0, last: i === pages.length - 1,
+                       page: pages.length > 1 ? [i + 1, pages.length] : null });
+        box.appendChild(d);
+        const canvas = await html2canvas(d, {scale:2, backgroundColor:'#ffffff', logging:false});
+        box.removeChild(d);
+        if(i) pdf.addPage();
+        let h = canvas.height * 210 / canvas.width;
+        if(h > 297) h = 297;              // 念のため。はみ出すより縮めるほうがまし
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, h, undefined, 'FAST');
+      }
       const blob = pdf.output('blob');
       if(!blob || blob.size < 5000) throw new Error('PDFが小さすぎます（組版に失敗した可能性があります）。');
       return blob;
@@ -2739,7 +2784,9 @@
       th  : `border-bottom:2px solid #000;${pad};font-size:.84em;letter-spacing:.04em;word-break:keep-all`
     };
   }
-  function orderDocHtml(o, base){
+  function orderDocHtml(o, base, opt){
+    opt = opt || {};
+    const first = opt.first !== false, last = opt.last !== false;
     const MD = docStyle(base || 14);
     const sup = suppliers().find(s=>s.n===o.supplier) || {full:o.supplier};
     let net = 0, askPrice = 0;
@@ -2751,11 +2798,16 @@
       .concat(hasDue?[['納期・着指定','l',11]]:[]);
     const sum = head.reduce((a,x)=>a+x[2],0);
     const ths = head.map(x=>`<th width="${(x[2]*100/sum).toFixed(1)}%" style="${MD.th};text-align:${x[1]==='r'?'right':'left'}">${x[0]}</th>`).join('');
-    const rows = o.lines.filter(l=>l.name).map(l=>{
+    // 合計はいつも「全部の行」から出す（ページ分けしても数字が変わらないように）
+    o.lines.filter(l=>l.name).forEach(l=>{
       const p = l.priceFixed ?? l.price;
       const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       if(amt!=null && l.cur!=='USD') net += amt;
       if(p==null) askPrice++;
+    });
+    const rows = (opt.lines || o.lines.filter(l=>l.name)).map(l=>{
+      const p = l.priceFixed ?? l.price;
+      const amt = (l.qty!=null && p!=null) ? l.qty*p : null;
       const spec = [l.size,l.color,l.form].filter(Boolean).join('　');
       return `<tr><td style="${MD.tdn}">${l.no}</td><td style="${MD.td}">${esc(l.code||'')}</td>`
         + `<td style="${MD.td}">${esc(l.name)}</td><td style="${MD.tdc}">${esc(spec)}</td>`
@@ -2778,20 +2830,25 @@
       + `<div style="margin-top:.3em">発注者 : ${esc(o.staff)}</div>`;
     return `<div style="${MD.doc}">`
       + `<div style="text-align:center;letter-spacing:.5em;font-size:1.79em;font-weight:bold;margin:0 0 .6em">注文書</div>`
+      + (opt.page ? `<div style="text-align:right;font-size:.9em;margin:-.5em 0 .5em">${opt.page[0]} / ${opt.page[1]} ページ</div>` : '')
       + `<table width="100%" style="border-collapse:collapse"><tr>`
       + `<td valign="top" style="padding:0;vertical-align:top">${left}</td>`
       + `<td valign="top" align="right" style="padding:0;text-align:right;vertical-align:top;line-height:1.5;white-space:nowrap">${right}</td>`
       + `</tr></table>`
-      + (o.revNote?`<p style="border:2px solid #000;padding:.3em .6em;margin:.5em 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
-      + `<p style="margin:.6em 0 .2em">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
-      + (o.note?`<p style="font-weight:bold;text-decoration:underline;margin:.3em 0">${esc(o.note)}</p>`:'')
+      + ((o.revNote && first)?`<p style="border:2px solid #000;padding:.3em .6em;margin:.5em 0;font-weight:bold">${esc(o.revNote)}</p>`:'')
+      + (first
+          ? `<p style="margin:.6em 0 .2em">毎度お引き立ていただき厚くお礼申し上げます。<br>下記の通り注文させていただきます。宜しくお願い致します。</p>`
+          : `<p style="margin:.6em 0 .2em">（前のページからの続きです）</p>`)
+      + ((o.note && first)?`<p style="font-weight:bold;text-decoration:underline;margin:.3em 0">${esc(o.note)}</p>`:'')
       + `<table width="100%" style="border-collapse:collapse;table-layout:fixed;margin-top:.5em"><tr>${ths}</tr>${rows}</table>`
-      + `<table width="100%" style="border-collapse:collapse;margin-top:.6em"><tr><td align="right" style="padding:0;text-align:right">`
-      + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
-      + `<span style="display:inline-block;border:2px solid #000;padding:.35em .8em;margin-top:.35em;font-weight:bold;font-size:1.3em">税込合計 ${yen(net+tax)}</span>`
-      + (askPrice?`<br><span style="font-size:12px">※単価未定の明細が${askPrice}行あります。上記合計は確定ではありません。</span>`:'')
-      + `</td></tr></table>`
-      + `<p style="text-align:center;margin-top:.8em">納品書及び送り状に発注者名を明記してください。</p>`
+      + (last
+        ? `<table width="100%" style="border-collapse:collapse;margin-top:.6em"><tr><td align="right" style="padding:0;text-align:right">`
+          + `税抜小計 ${yen(net)}<br>消費税 10% ${yen(tax)}<br>`
+          + `<span style="display:inline-block;border:2px solid #000;padding:.35em .8em;margin-top:.35em;font-weight:bold;font-size:1.3em">税込合計 ${yen(net+tax)}</span>`
+          + (askPrice?`<br><span style="font-size:12px">※単価未定の明細が${askPrice}行あります。上記合計は確定ではありません。</span>`:'')
+          + `</td></tr></table>`
+          + `<p style="text-align:center;margin-top:.8em">納品書及び送り状に発注者名を明記してください。</p>`
+        : `<p style="text-align:right;margin-top:.6em">次のページに続きます</p>`)
       + `</div>`;
   }
   // メールの本文（注文書のあとに差出人の署名を付ける）
