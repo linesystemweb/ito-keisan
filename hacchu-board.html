@@ -651,7 +651,7 @@
   const MSAL_CLIENT = 'eef3e056-c0ec-4501-8008-b8a0a7ced644';
   const MSAL_TENANT = '54efa9ea-75a9-4b0d-ad14-2e6024872820';
   const SCOPES      = ['User.Read'];
-  const APP_VER     = '2026-11-17 v50';
+  const APP_VER     = '2026-11-17 v51';
 
   let orders = [], customItems = [], customSups = [], customStaff = [], priceUpdates = [], readOnly = false;
   let slips = [];   // メールから読み取った入荷伝票（確認待ち）
@@ -2821,10 +2821,11 @@
     // 並びは、もとのFAX版の注文書どおり。
     // 左に 御中／注文番号・納期・納入先・梱包、右に 日付と自社名。
     const left = `<div style="font-size:1.37em;font-weight:bold">${esc(sup.full||o.supplier)}　御中</div>`
-      // 副発注No.（顧客の注文番号）があるときは、そちらを注文番号として大きく出し、
-      // 社内の採番（LS26-xxxx-xx）は弊社注文番号として下に添える。
+      // 副発注No.（顧客の注文番号）があるときは、そちらを注文番号として出し、
+      // 社内の採番（LS26-xxxx-xx）は管理注文番号として下に添える。
+      // 副発注No.が無ければ、今までどおり LS26-xxxx-xx が注文番号になる。
       + `<div style="margin-top:.45em">注文番号 : ${esc(o.subNo || o.no)}${o.revNote?'（訂正）':''}</div>`
-      + (o.subNo?`<div>弊社注文番号 : ${esc(o.no)}</div>`:'')
+      + (o.subNo?`<div>管理注文番号 : ${esc(o.no)}</div>`:'')
       + `<div>納期 : ${esc(o.due||'納期ご連絡願います。')}</div>`
       + `<div>納入先 : ${esc(o.to)}</div>`
       + `<div>梱包 : ${esc(o.packing||'')}</div>`;
